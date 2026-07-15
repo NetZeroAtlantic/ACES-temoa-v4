@@ -44,6 +44,7 @@ Parameters in the table below relate to the specification of **costs**.
    ":math:`\text{CV}_{r,p,t,v}`", ":code:`cost_variable`", ":code:`cost_variable`", "variable operations & maintenance (O&M) cost"
    ":math:`\text{CVM}_{r,t,s,d}`", ":code:`cost_variable_multiplier`", ":code:`cost_variable_multiplier`", "optional time-slice multiplier on variable O&M cost; unspecified slices default to 1"
    ":math:`\text{CE}_{r,p,e}`", ":code:`cost_emission`", ":code:`cost_emission`", "emission costs"
+   ":math:`\text{OBS}_{r,p,e,i,t,o}`", ":code:`output_based_standard`", ":code:`output_based_standard`", "emissions-price credit per unit of qualifying process output"
    ":math:`\text{GDR}`", ":code:`metadata_real`", ":code:`global_discount_rate`", "global rate used to convert future time period costs to the present cost"
    ":math:`\text{DLR}`", ":code:`metadata_real`", ":code:`default_loan_rate`", "default loan rate used to amortize investment costs"
    ":math:`\text{LLP}_{r,t,v}`", ":code:`loan_lifetime_process`", ":code:`loan_lifetime_process`", "process-specific loan term (default=lifetime_process)"

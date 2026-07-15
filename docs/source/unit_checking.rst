@@ -209,6 +209,7 @@ These flags are **orthogonal**:
    "cost_fixed", "True", "True", "Mdollar / (PJ^2 / GW / year)"
    "cost_variable", "False", "False", "Mdollar / (PJ)"
    "cost_emission", "False", "False", "Mdollar / (Mt)"
+   "output_based_standard", "False", "False", "Mt / (PJ)"
 
 5. Schema Variations: tech vs tech_or_group
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

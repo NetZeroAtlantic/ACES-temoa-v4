@@ -153,6 +153,25 @@ CREATE TABLE IF NOT EXISTS cost_emission
     notes     TEXT,
     PRIMARY KEY (region, period, emis_comm)
 );
+CREATE TABLE IF NOT EXISTS output_based_standard
+(
+    region      TEXT    NOT NULL
+        REFERENCES region (region),
+    period      INTEGER NOT NULL
+        REFERENCES time_period (period),
+    emis_comm   TEXT    NOT NULL
+        REFERENCES commodity (name),
+    input_comm  TEXT    NOT NULL
+        REFERENCES commodity (name),
+    tech        TEXT    NOT NULL
+        REFERENCES technology (tech),
+    output_comm TEXT    NOT NULL
+        REFERENCES commodity (name),
+    offset      REAL    NOT NULL CHECK (offset >= 0),
+    units       TEXT,
+    notes       TEXT,
+    PRIMARY KEY (region, period, emis_comm, input_comm, tech, output_comm)
+);
 CREATE TABLE IF NOT EXISTS cost_fixed
 (
     region  TEXT    NOT NULL,
@@ -1013,10 +1032,12 @@ CREATE TABLE IF NOT EXISTS output_cost
     d_fixed  REAL,
     d_var    REAL,
     d_emiss  REAL,
+    d_obps   REAL,
     invest   REAL,
     fixed    REAL,
     var      REAL,
     emiss    REAL,
+    obps     REAL,
     units    TEXT,
     PRIMARY KEY (scenario, region, period, tech, vintage),
     FOREIGN KEY (vintage) REFERENCES time_period (period),

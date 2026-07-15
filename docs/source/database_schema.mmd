@@ -95,6 +95,17 @@ cost_emission {
    TEXT notes
    TEXT units
 }
+output_based_standard {
+ TEXT region PK
+   INTEGER period PK
+   TEXT emis_comm PK
+   TEXT input_comm PK
+   TEXT tech PK
+   TEXT output_comm PK
+   REAL offset
+   TEXT notes
+   TEXT units
+}
 cost_fixed {
  INTEGER period PK
    TEXT region PK
@@ -492,10 +503,12 @@ output_cost {
    TEXT tech PK
    INTEGER vintage PK
    REAL d_emiss
+   REAL d_obps
    REAL d_fixed
    REAL d_invest
    REAL d_var
    REAL emiss
+   REAL obps
    REAL fixed
    REAL invest
    TEXT sector
@@ -702,6 +715,12 @@ commodity one or zero--0+ construction_input : has
 technology one or zero--0+ construction_input : has
 time_period one or zero--0+ cost_emission : has
 commodity 1--0+ cost_emission : has
+region one or zero--0+ output_based_standard : has
+time_period one or zero--0+ output_based_standard : has
+commodity one or zero--0+ output_based_standard : prices
+commodity one or zero--0+ output_based_standard : consumes
+technology one or zero--0+ output_based_standard : credits
+commodity one or zero--0+ output_based_standard : produces
 time_period 1--0+ cost_fixed : has
 technology 1--0+ cost_fixed : has
 time_period 1--0+ cost_fixed : has

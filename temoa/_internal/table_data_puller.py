@@ -771,6 +771,39 @@ def poll_emissions(
         ud_costs[ei.r, ei.p, ei.t, ei.v] += float(value(undiscounted_emiss_cost))
         d_costs[ei.r, ei.p, ei.t, ei.v] += float(value(discounted_emiss_cost))
 
+    ###########################
+    #   Output-based standard credits
+    ###########################
+    ud_obps_costs: dict[tuple[Region, Period, Technology, Vintage], float] = defaultdict(float)
+    d_obps_costs: dict[tuple[Region, Period, Technology, Vintage], float] = defaultdict(float)
+    for p in model.time_optimize:
+        for r, _p, e, i, t, v, o in costs.output_based_standard_process_indices(model, p):
+            if t in model.tech_annual:
+                credited_output = value(model.v_flow_out_annual[r, p, i, t, v, o])
+            else:
+                credited_output = sum(
+                    value(model.v_flow_out[r, p, s, d, i, t, v, o])
+                    for s in model.time_season
+                    for d in model.time_of_day
+                )
+
+            credit_rate = value(model.output_based_standard[r, p, e, i, t, o])
+            credit_flow = -credited_output * credit_rate
+
+            undiscounted_credit = (
+                credit_flow * value(model.cost_emission[r, p, e]) * value(model.period_length[p])
+            )
+            discounted_credit = costs.fixed_or_variable_cost(
+                cap_or_flow=credit_flow,
+                cost_factor=value(model.cost_emission[r, p, e]),
+                cost_years=value(model.period_length[p]),
+                global_discount_rate=global_discount_rate,
+                p_0=p_0_true,
+                p=p,
+            )
+            ud_obps_costs[r, p, t, v] += float(value(undiscounted_credit))
+            d_obps_costs[r, p, t, v] += float(value(discounted_credit))
+
     # finally, now that all costs are added up for each rptv, put in cost dict
     costs_dict: dict[tuple[Region, Period, Technology, Vintage], dict[CostType, float]] = (
         defaultdict(dict)
@@ -779,6 +812,10 @@ def poll_emissions(
         costs_dict[rptv][CostType.EMISS] = ud_costs[rptv]
     for rptv in d_costs:
         costs_dict[rptv][CostType.D_EMISS] = d_costs[rptv]
+    for rptv in ud_obps_costs:
+        costs_dict[rptv][CostType.OBPS] = ud_obps_costs[rptv]
+    for rptv in d_obps_costs:
+        costs_dict[rptv][CostType.D_OBPS] = d_obps_costs[rptv]
 
     # wow, that was like pulling teeth
     return costs_dict, flows

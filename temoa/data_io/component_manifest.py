@@ -327,6 +327,21 @@ def build_manifest(model: TemoaModel) -> list[LoadItem]:
             is_table_required=False,
         ),
         LoadItem(
+            component=model.output_based_standard,
+            table='output_based_standard',
+            columns=[
+                'region',
+                'period',
+                'emis_comm',
+                'input_comm',
+                'tech',
+                'output_comm',
+                'offset',
+            ],
+            custom_loader_name='_load_output_based_standard',
+            is_table_required=False,
+        ),
+        LoadItem(
             component=model.loan_rate,
             table='loan_rate',
             columns=['region', 'tech', 'vintage', 'rate'],

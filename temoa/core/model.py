@@ -570,6 +570,18 @@ class TemoaModel(AbstractModel):
             within=self.regions * self.time_optimize * self.commodity_emissions
         )
         self.cost_emission = Param(self.cost_emission_rpe)
+        self.output_based_standard_rpeito = Set(
+            within=self.regions
+            * self.time_optimize
+            * self.commodity_emissions
+            * self.commodity_physical
+            * self.tech_all
+            * self.commodity_carrier
+        )
+        self.output_based_standard = Param(
+            self.output_based_standard_rpeito, domain=NonNegativeReals
+        )
+        self.validate_output_based_standard = BuildCheck(rule=costs.validate_output_based_standard)
 
         self.process_life_frac_rptv = Set(dimen=4, initialize=technology.model_process_life_indices)
         self.process_life_frac = Param(

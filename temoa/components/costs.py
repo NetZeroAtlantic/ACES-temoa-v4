@@ -23,7 +23,15 @@ if TYPE_CHECKING:
     from pyomo.core.base.component import ComponentData
 
     from temoa.core.model import TemoaModel
-    from temoa.types.core_types import Period, Region, Season, Technology, TimeOfDay, Vintage
+    from temoa.types.core_types import (
+        Commodity,
+        Period,
+        Region,
+        Season,
+        Technology,
+        TimeOfDay,
+        Vintage,
+    )
 
 from logging import getLogger
 
@@ -131,6 +139,55 @@ def get_cost_variable_multiplier(
     if index not in model.cost_variable_multiplier:
         return 1.0
     return float(value(model.cost_variable_multiplier[index]))
+
+
+def output_based_standard_process_indices(
+    model: TemoaModel, period: int
+) -> list[tuple[Region, Period, Commodity, Commodity, Technology, Vintage, Commodity]]:
+    """Expand period-level OBPS rows to every matching active process vintage."""
+    indices = []
+    for r, p, e, i, t, o in model.output_based_standard.sparse_keys():
+        if p != period:
+            continue
+        for v in model.process_vintages.get((r, p, t), set()):
+            if i not in model.process_inputs.get((r, p, t, v), set()):
+                continue
+            if o not in model.process_outputs_by_input.get((r, p, t, v, i), set()):
+                continue
+            indices.append((r, p, e, i, t, v, o))
+    return indices
+
+
+def validate_output_based_standard(model: TemoaModel) -> bool:
+    """Validate that every OBPS row has a price and at least one active process."""
+    valid = True
+    for r, p, e, i, t, o in model.output_based_standard.sparse_keys():
+        if (r, p, e) not in model.cost_emission:
+            logger.error(
+                'output_based_standard row (%s, %s, %s, %s, %s, %s) has no matching '
+                'cost_emission entry',
+                r,
+                p,
+                e,
+                i,
+                t,
+                o,
+            )
+            valid = False
+        period_indices = output_based_standard_process_indices(model, p)
+        if not any(index[:5] == (r, p, e, i, t) and index[6] == o for index in period_indices):
+            logger.error(
+                'output_based_standard row (%s, %s, %s, %s, %s, %s) does not match an '
+                'active efficiency process',
+                r,
+                p,
+                e,
+                i,
+                t,
+                o,
+            )
+            valid = False
+    return valid
 
 
 def lifetime_loan_process_indices(model: TemoaModel) -> set[tuple[Region, Technology, Vintage]]:
@@ -488,6 +545,36 @@ def period_cost_rule(model: TemoaModel, p: int) -> float | Expression:
         if t not in model.tech_flex
     )
 
+    obps_indices = output_based_standard_process_indices(model, p)
+    obps_credits = quicksum(
+        fixed_or_variable_cost(
+            cap_or_flow=-model.v_flow_out[r, p, s, d, i, t, v, o]
+            * value(model.output_based_standard[r, p, e, i, t, o]),
+            cost_factor=value(model.cost_emission[r, p, e]),
+            cost_years=value(model.period_length[p]),
+            global_discount_rate=global_discount_rate,
+            p_0=p_0,
+            p=p,
+        )
+        for r, _p, e, i, t, v, o in obps_indices
+        if t not in model.tech_annual
+        for s in model.time_season
+        for d in model.time_of_day
+    )
+    obps_credits += quicksum(
+        fixed_or_variable_cost(
+            cap_or_flow=-model.v_flow_out_annual[r, p, i, t, v, o]
+            * value(model.output_based_standard[r, p, e, i, t, o]),
+            cost_factor=value(model.cost_emission[r, p, e]),
+            cost_years=value(model.period_length[p]),
+            global_discount_rate=global_discount_rate,
+            p_0=p_0,
+            p=p,
+        )
+        for r, _p, e, i, t, v, o in obps_indices
+        if t in model.tech_annual
+    )
+
     # 5. flex annual emissions -- removed (double counting, flex wastes are SUBTRACTIVE from
     # flowout)
 
@@ -529,7 +616,11 @@ def period_cost_rule(model: TemoaModel, p: int) -> float | Expression:
     )
 
     period_emission_cost = (
-        var_emissions + var_annual_emissions + embodied_emissions + endoflife_emissions
+        var_emissions
+        + var_annual_emissions
+        + embodied_emissions
+        + endoflife_emissions
+        + obps_credits
     )
 
     period_costs = (
@@ -547,7 +638,8 @@ def total_cost_rule(model: TemoaModel) -> Expression:
     Using the :code:`FlowOut` and :code:`Capacity` variables, the Temoa objective
     function calculates the cost of energy supply, under the assumption that capital
     costs are paid through loans. This implementation sums up all the costs incurred,
-    and is defined as :math:`C_{tot} = C_{loans} + C_{fixed} + C_{variable} + C_{emissions}`.
+    and is defined as :math:`C_{tot} = C_{loans} + C_{fixed} + C_{variable} +
+    C_{emissions} + C_{OBPS}`.
     Each term on the right-hand side represents the cost incurred over the model
     time horizon and discounted to the initial year in the horizon (:math:`{P}_0`).
     The calculation of each term is given below.
@@ -640,7 +732,8 @@ def total_cost_rule(model: TemoaModel) -> Expression:
             && \text{(annual fixed cost)} \\
             \\
             C_{variable} =& \sum_{r, p, t \notin T^a, v \in \Theta_{CV}}
-            CV_{r, p, t, v} \cdot \sum_{S, D, I, O} \mathbf{FO}_{r, p, s, d, i, t, v, o}
+            CV_{r, p, t, v} \cdot \sum_{S, D, I, O} CVM_{r,t,s,d}
+            \cdot \mathbf{FO}_{r, p, s, d, i, t, v, o}
             && \text{(annual variable cost on flow)} \\
             & \text{where } t \notin T^a \\
             &+\\
@@ -667,6 +760,10 @@ def total_cost_rule(model: TemoaModel) -> Expression:
             & \sum_{r, p, e \in \Theta_{CE}, v} CE_{r, p, e}
             \cdot EEOL_{r, e, t, v} \cdot \mathbf{ART}_{r, p, t, v}
             && \text{(annual retirement/end of life emission cost)} \\
+            &+\\
+            C_{OBPS} =& -\sum_{r,p,e,i,t,v,o \in \Theta_{OBS}} CE_{r,p,e}
+            \cdot OBS_{r,p,e,i,t,o} \cdot \mathbf{FO}_{r,p,s,d,i,t,v,o}
+            && \text{(output-based standard credit)} \\
         \end{aligned}
 
     Each of these costs are then discounted within each period and then to the base year:
@@ -675,7 +772,7 @@ def total_cost_rule(model: TemoaModel) -> Expression:
         :label: obj_fixed_variable_emission
 
         \begin{aligned}
-            C_{fix,var,emiss} =& C_{fixed} + C_{variable} + C_{emissions} \\
+            C_{fix,var,emiss,OBPS} =& C_{fixed} + C_{variable} + C_{emissions} + C_{OBPS} \\
             &\cdot \frac{P}{A}(i=GDR,\ N=LEN_p)
             && \text{(for each year in period } p \text{ discounted to NPV in } p \text{)}\\
             &\cdot \frac{P}{F}(i=GDR,\ N=p - P_0)

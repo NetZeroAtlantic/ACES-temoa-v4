@@ -747,6 +747,8 @@ class TableWriter:
         if self.tech_sectors is None:
             raise RuntimeError('tech sectors not available... code error')
 
+        self._ensure_output_cost_columns()
+
         scenario = self._get_scenario_name(iteration)
         unit_prop = self.unit_propagator
         records = []
@@ -760,10 +762,12 @@ class TableWriter:
                 costs.get(CostType.D_FIXED, 0),
                 costs.get(CostType.D_VARIABLE, 0),
                 costs.get(CostType.D_EMISS, 0),
+                costs.get(CostType.D_OBPS, 0),
                 costs.get(CostType.INVEST, 0),
                 costs.get(CostType.FIXED, 0),
                 costs.get(CostType.VARIABLE, 0),
                 costs.get(CostType.EMISS, 0),
+                costs.get(CostType.OBPS, 0),
             )
             if all(abs(val) < self.output_threshold_cost for val in row_values):
                 continue
@@ -779,16 +783,26 @@ class TableWriter:
                     'd_fixed': costs.get(CostType.D_FIXED, 0),
                     'd_var': costs.get(CostType.D_VARIABLE, 0),
                     'd_emiss': costs.get(CostType.D_EMISS, 0),
+                    'd_obps': costs.get(CostType.D_OBPS, 0),
                     'invest': costs.get(CostType.INVEST, 0),
                     'fixed': costs.get(CostType.FIXED, 0),
                     'var': costs.get(CostType.VARIABLE, 0),
                     'emiss': costs.get(CostType.EMISS, 0),
+                    'obps': costs.get(CostType.OBPS, 0),
                     'units': unit_prop.get_cost_units() if unit_prop else None,
                 }
             )
 
         self._bulk_insert('output_cost', records)
         self.connection.commit()
+
+    def _ensure_output_cost_columns(self) -> None:
+        """Upgrade older v4 output_cost tables so OBPS credits cannot be dropped silently."""
+        columns = self._get_table_columns('output_cost')
+        for column in ('d_obps', 'obps'):
+            if column not in columns:
+                self.connection.execute(f'ALTER TABLE output_cost ADD COLUMN {column} REAL')
+        self._table_columns_cache.pop('output_cost', None)
 
     def write_dual_variables(self, results: SolverResults, iteration: int | None = None) -> None:
         scenario = self._get_scenario_name(iteration)

@@ -201,6 +201,7 @@ if TYPE_CHECKING:
         cost_fixed: Param
         cost_variable: Param
         cost_variable_multiplier: Param
+        output_based_standard: Param
 
         # Model variables
         v_flow_out: Var

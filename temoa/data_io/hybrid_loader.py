@@ -594,6 +594,33 @@ class HybridLoader:
             self._load_component_data(data, model.time_season_sequential, seq_seasons)
 
     # --- Capacity and Cost Components ---
+    def _load_output_based_standard(
+        self,
+        data: dict[str, object],
+        raw_data: Sequence[tuple[object, ...]],
+        filtered_data: Sequence[tuple[object, ...]],
+    ) -> None:
+        """Load OBPS rows, filtering orphan paths during source-traced runs."""
+        model = TemoaModel()
+        rows_to_load = list(filtered_data)
+
+        if self.viable_rpit is not None and self.viable_rpto is not None:
+            rows_to_load = [
+                row
+                for row in rows_to_load
+                if (row[0], row[1], row[3], row[4]) in self.viable_rpit.members
+                and (row[0], row[1], row[4], row[5]) in self.viable_rpto.members
+            ]
+            ignored_count = len(raw_data) - len(rows_to_load)
+            if ignored_count:
+                logger.warning(
+                    '%d output_based_standard rows referenced orphaned process paths and were '
+                    'ignored.',
+                    ignored_count,
+                )
+
+        self._load_component_data(data, model.output_based_standard, rows_to_load)
+
     def _load_existing_capacity(
         self,
         data: dict[str, object],
@@ -842,6 +869,7 @@ class HybridLoader:
             model.cost_invest.name: model.cost_invest_rtv.name,
             model.cost_variable_multiplier.name: model.cost_variable_multiplier_rtsd.name,
             model.cost_emission.name: model.cost_emission_rpe.name,
+            model.output_based_standard.name: model.output_based_standard_rpeito.name,
             model.demand.name: model.demand_constraint_rpc.name,
             model.limit_emission.name: model.limit_emission_constraint_rpe.name,
             model.limit_activity.name: model.limit_activity_constraint_rpt.name,

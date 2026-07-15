@@ -25,6 +25,7 @@ input_tables_with_units = [
     'lifetime_process',
     'lifetime_tech',
     'loan_lifetime_process',
+    'output_based_standard',
     'limit_activity',
     'limit_capacity',
     #  Growth/degrowth tables use 'seed_units' column, not 'units' - handle separately
@@ -61,6 +62,7 @@ ratio_capture_tables = {
     'cost_fixed',
     'cost_invest',
     'cost_variable',
+    'output_based_standard',
 }
 """Tables that require ratio capture in form "units / (other units)" """
 

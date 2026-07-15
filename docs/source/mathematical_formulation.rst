@@ -465,6 +465,26 @@ for a given emissions commodity in each period.  This allows the modeler to
 penalize emission production, for example via a carbon tax. The cost is
 applied to total emissions of commodity :math:`e` in period :math:`p`.
 
+output_based_standard
+~~~~~~~~~~~~~~~~~~~~~
+
+:math:`{OBS}_{r \in R, p \in P, e \in C^e, i \in C^p, t \in T, o \in C}`
+
+The optional :code:`output_based_standard` parameter provides an output-based
+emissions-price credit. For every matching active process vintage, the objective
+includes
+:math:`-\mathbf{FO}_{r,p,s,d,i,t,v,o} \cdot OBS_{r,p,e,i,t,o} \cdot CE_{r,p,e}`
+(or the corresponding annual flow). The offset is non-negative and is normally
+entered in units of emission commodity per unit of output commodity. Every row
+must reference an active efficiency path and a matching :code:`cost_emission`
+entry.
+
+This term changes compliance cost only. It does not subtract from
+:code:`emission_activity`, :code:`output_emission`, or an emissions limit, so
+reported physical emissions remain gross. Discounted and undiscounted credits
+are reported separately as :code:`d_obps` and :code:`obps` in
+:code:`output_cost`.
+
 
 construction_input
 ~~~~~~~~~~~~~~~~~~

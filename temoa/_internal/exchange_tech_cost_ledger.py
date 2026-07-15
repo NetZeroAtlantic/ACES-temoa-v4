@@ -30,6 +30,8 @@ class CostType(Enum):
     D_FIXED = 6
     D_VARIABLE = 7
     D_EMISS = 8
+    OBPS = 9
+    D_OBPS = 10
 
 
 class ExchangeTechCostLedger:

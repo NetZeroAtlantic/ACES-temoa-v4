@@ -71,6 +71,12 @@ def _check_units_entries(conn: sqlite3.Connection, report_entries: list[str]) ->
 
     errors_test2 = False
     for table in tables_to_check:
+        table_exists = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", (table,)
+        ).fetchone()
+        if not table_exists:
+            logger.debug('Optional units table %s is absent; skipping.', table)
+            continue
         _, table_errors = check_table(conn, table)
         if table_errors:
             errors_test2 = True

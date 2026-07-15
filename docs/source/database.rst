@@ -92,6 +92,7 @@ recommend that you populate input tables in the following order:
   * cost_variable
   * cost_variable_multiplier (optional time-slice adjustment to cost_variable)
   * emission_activity
+  * output_based_standard (optional output-based emissions-price credit)
   * lifetime_tech
   * lifetime_process (only if LT varies by vintage; overwrites lifetime_tech)
 

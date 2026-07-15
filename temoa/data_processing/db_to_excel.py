@@ -161,9 +161,16 @@ def make_excel(ifile: str | None, ofile: Path | None, scenario: set[str]) -> Non
         for col, val in enumerate(df_emissions.columns.values):
             worksheet.write(0, col, val, header_format)
 
-    query_costs = """
+    output_cost_columns = {
+        row[1] for row in con.execute('PRAGMA table_info(output_cost)').fetchall()
+    }
+    discounted_cost_columns = ['d_invest', 'd_var', 'd_fixed', 'd_emiss']
+    if 'd_obps' in output_cost_columns:
+        discounted_cost_columns.append('d_obps')
+    cost_expression = ' + '.join(f'COALESCE({column}, 0)' for column in discounted_cost_columns)
+    query_costs = f"""
         SELECT region, oc.tech, t.sector, vintage,
-               d_invest + d_var + d_fixed + d_emiss as cost
+               {cost_expression} as cost
         FROM output_cost oc
         JOIN Technology t ON oc.tech = t.tech
         WHERE scenario = ?

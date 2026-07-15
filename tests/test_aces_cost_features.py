@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from temoa._internal.temoa_sequencer import TemoaSequencer
+from temoa.components import costs
 from temoa.core.config import TemoaConfig
 from temoa.model_checking import network_model_data
 
@@ -121,3 +122,179 @@ def test_negative_effective_variable_cost_is_marked_for_cycle_checks(tmp_path: P
         lookup = network_model_data._fetch_lookup_data(con.cursor())
 
     assert 'TechOrdinary' in lookup['neg_cost_techs']
+
+
+def test_output_based_standard_credits_do_not_change_physical_emissions(tmp_path: Path) -> None:
+    baseline_db_path = _build_feature_database(tmp_path, 'output_based_standard_baseline')
+    _run_feature_model(baseline_db_path, tmp_path)
+    with contextlib.closing(sqlite3.connect(baseline_db_path)) as con:
+        baseline_physical_emissions = dict(
+            con.execute(
+                """
+                SELECT tech, SUM(emission)
+                FROM output_emission
+                WHERE scenario = 'aces feature test'
+                  AND period = 2000
+                  AND tech IN ('TechOrdinary', 'TechAnnual')
+                GROUP BY tech
+                """
+            ).fetchall()
+        )
+        baseline_objective = con.execute(
+            """
+            SELECT total_system_cost
+            FROM output_objective
+            WHERE scenario = 'aces feature test'
+            """
+        ).fetchone()[0]
+
+    db_path = _build_feature_database(
+        tmp_path,
+        'output_based_standard',
+        """
+        INSERT INTO output_based_standard
+        VALUES (
+            'Testregion', 2000, 'emission', 'ordinary_in', 'TechOrdinary',
+            'ordinary_out', 0.4, NULL, NULL
+        );
+        INSERT INTO output_based_standard
+        VALUES (
+            'Testregion', 2000, 'emission', 'annual_in', 'TechAnnual',
+            'annual_out', 0.2, NULL, NULL
+        );
+        """,
+    )
+
+    _run_feature_model(db_path, tmp_path)
+
+    with contextlib.closing(sqlite3.connect(db_path)) as con:
+        physical_emissions = dict(
+            con.execute(
+                """
+                SELECT tech, SUM(emission)
+                FROM output_emission
+                WHERE scenario = 'aces feature test'
+                  AND period = 2000
+                  AND tech IN ('TechOrdinary', 'TechAnnual')
+                GROUP BY tech
+                """
+            ).fetchall()
+        )
+        cost_rows = {
+            tech: (emiss, d_emiss, obps, d_obps)
+            for tech, emiss, d_emiss, obps, d_obps in con.execute(
+                """
+                SELECT tech, emiss, d_emiss, obps, d_obps
+                FROM output_cost
+                WHERE scenario = 'aces feature test'
+                  AND period = 2000
+                  AND tech IN ('TechOrdinary', 'TechAnnual')
+                """
+            ).fetchall()
+        }
+        reported_obps_total = con.execute(
+            """
+            SELECT SUM(COALESCE(d_obps, 0))
+            FROM output_cost
+            WHERE scenario = 'aces feature test'
+            """
+        ).fetchone()[0]
+        objective = con.execute(
+            """
+            SELECT total_system_cost
+            FROM output_objective
+            WHERE scenario = 'aces feature test'
+            """
+        ).fetchone()[0]
+
+    expected_physical_emissions = {'TechOrdinary': 0.3, 'TechAnnual': 1.0}
+    assert baseline_physical_emissions == pytest.approx(expected_physical_emissions)
+    assert physical_emissions == pytest.approx(expected_physical_emissions)
+    discount_factor = float(costs.annuity_to_pv(0.05, 5))
+    for tech, flow, offset in (
+        ('TechOrdinary', 0.3, 0.4),
+        ('TechAnnual', 1.0, 0.2),
+    ):
+        emiss, d_emiss, obps, d_obps = cost_rows[tech]
+        assert emiss == pytest.approx(flow * 0.7 * 5)
+        assert d_emiss == pytest.approx(flow * 0.7 * discount_factor)
+        assert obps == pytest.approx(-flow * offset * 0.7 * 5)
+        assert d_obps == pytest.approx(-flow * offset * 0.7 * discount_factor)
+    assert objective - baseline_objective == pytest.approx(reported_obps_total)
+
+
+@pytest.mark.parametrize(
+    'setup_sql',
+    [
+        """
+        DELETE FROM cost_emission WHERE region = 'Testregion' AND period = 2000;
+        INSERT INTO output_based_standard
+        VALUES (
+            'Testregion', 2000, 'emission', 'ordinary_in', 'TechOrdinary',
+            'ordinary_out', 0.4, NULL, NULL
+        );
+        """,
+        """
+        INSERT INTO output_based_standard
+        VALUES (
+            'Testregion', 2000, 'emission', 'annual_in', 'TechOrdinary',
+            'ordinary_out', 0.4, NULL, NULL
+        );
+        """,
+    ],
+    ids=['missing-emissions-price', 'missing-active-process'],
+)
+def test_output_based_standard_rejects_incomplete_rows(tmp_path: Path, setup_sql: str) -> None:
+    db_path = _build_feature_database(tmp_path, 'invalid_obps', setup_sql)
+
+    with pytest.raises((ValueError, RuntimeError), match='validate_output_based_standard'):
+        _run_feature_model(db_path, tmp_path)
+
+
+def test_writer_upgrades_old_v4_output_cost_schema_for_obps(tmp_path: Path) -> None:
+    db_path = _build_feature_database(
+        tmp_path,
+        'old_output_schema',
+        """
+        DROP TABLE output_cost;
+        CREATE TABLE output_cost
+        (
+            scenario TEXT,
+            region TEXT,
+            sector TEXT,
+            period INTEGER,
+            tech TEXT,
+            vintage INTEGER,
+            d_invest REAL,
+            d_fixed REAL,
+            d_var REAL,
+            d_emiss REAL,
+            invest REAL,
+            fixed REAL,
+            var REAL,
+            emiss REAL,
+            units TEXT,
+            PRIMARY KEY (scenario, region, period, tech, vintage)
+        );
+        INSERT INTO output_based_standard
+        VALUES (
+            'Testregion', 2000, 'emission', 'ordinary_in', 'TechOrdinary',
+            'ordinary_out', 0.4, NULL, NULL
+        );
+        """,
+    )
+
+    _run_feature_model(db_path, tmp_path)
+
+    with contextlib.closing(sqlite3.connect(db_path)) as con:
+        columns = {row[1] for row in con.execute('PRAGMA table_info(output_cost)').fetchall()}
+        credit = con.execute(
+            """
+            SELECT obps
+            FROM output_cost
+            WHERE scenario = 'aces feature test' AND tech = 'TechOrdinary' AND period = 2000
+            """
+        ).fetchone()[0]
+
+    assert {'obps', 'd_obps'} <= columns
+    assert credit == pytest.approx(-0.3 * 0.4 * 0.7 * 5)
