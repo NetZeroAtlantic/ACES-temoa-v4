@@ -364,11 +364,23 @@ def _fetch_lookup_data(cur: sqlite3.Cursor) -> LookupData:
         logger.warning('Table linked_tech not found, skipping.')
 
     try:
+        variable_costs = cur.execute('SELECT region, tech, cost FROM cost_variable').fetchall()
+        try:
+            multipliers = cur.execute(
+                'SELECT region, tech, multiplier FROM cost_variable_multiplier'
+            ).fetchall()
+        except sqlite3.OperationalError:
+            multipliers = []
+
+        multiplier_values: defaultdict[tuple[Region, Technology], list[float]] = defaultdict(list)
+        for region, tech, multiplier in multipliers:
+            multiplier_values[region, tech].append(multiplier)
+
         lookups['neg_cost_techs'] = {
             tech
-            for (tech,) in cur.execute(
-                'SELECT DISTINCT tech FROM cost_variable WHERE cost < 0'
-            ).fetchall()
+            for region, tech, cost in variable_costs
+            if cost < 0
+            or any(cost * multiplier < 0 for multiplier in multiplier_values[region, tech])
         }
     except sqlite3.OperationalError:
         logger.warning('Table cost_variable not found, skipping.')

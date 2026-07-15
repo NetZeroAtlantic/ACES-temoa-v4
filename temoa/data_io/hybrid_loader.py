@@ -840,6 +840,7 @@ class HybridLoader:
         model = TemoaModel()
         param_idx_sets = {
             model.cost_invest.name: model.cost_invest_rtv.name,
+            model.cost_variable_multiplier.name: model.cost_variable_multiplier_rtsd.name,
             model.cost_emission.name: model.cost_emission_rpe.name,
             model.demand.name: model.demand_constraint_rpc.name,
             model.limit_emission.name: model.limit_emission_constraint_rpe.name,

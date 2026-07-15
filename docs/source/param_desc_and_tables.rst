@@ -42,6 +42,7 @@ Parameters in the table below relate to the specification of **costs**.
    ":math:`\text{CF}_{r,p,t,v}`", ":code:`cost_fixed`", ":code:`cost_fixed`", "fixed operations & maintenance  cost"
    ":math:`\text{CI}_{r,t,v}`", ":code:`cost_invest`", ":code:`cost_invest`", "tech-specific investment cost"
    ":math:`\text{CV}_{r,p,t,v}`", ":code:`cost_variable`", ":code:`cost_variable`", "variable operations & maintenance (O&M) cost"
+   ":math:`\text{CVM}_{r,t,s,d}`", ":code:`cost_variable_multiplier`", ":code:`cost_variable_multiplier`", "optional time-slice multiplier on variable O&M cost; unspecified slices default to 1"
    ":math:`\text{CE}_{r,p,e}`", ":code:`cost_emission`", ":code:`cost_emission`", "emission costs"
    ":math:`\text{GDR}`", ":code:`metadata_real`", ":code:`global_discount_rate`", "global rate used to convert future time period costs to the present cost"
    ":math:`\text{DLR}`", ":code:`metadata_real`", ":code:`default_loan_rate`", "default loan rate used to amortize investment costs"

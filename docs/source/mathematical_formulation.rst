@@ -442,6 +442,18 @@ The :code:`cost_variable` parameter represents the cost of a process-specific un
 of activity. Thus the incurred variable costs are proportional to the activity
 of the process.
 
+cost_variable_multiplier
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+:math:`{CVM}_{r \in R, t \in T \setminus T^a, s \in S, d \in D}`
+
+The optional :code:`cost_variable_multiplier` parameter scales
+:code:`cost_variable` by season and time of day for non-annual technologies.
+Unspecified time slices use a multiplier of one. A multiplier may be positive,
+zero, or negative; annual technologies must not appear in this table. The
+time-slice variable cost term is therefore
+:math:`CV_{r,p,t,v} \cdot CVM_{r,t,s,d} \cdot \mathbf{FO}_{r,p,s,d,i,t,v,o}`.
+
 
 cost_emission
 ~~~~~~~~~~~~~

@@ -21,6 +21,7 @@ from pyomo.environ import (
     Objective,
     Param,
     PositiveReals,
+    Reals,
     minimize,
 )
 
@@ -543,6 +544,14 @@ class TemoaModel(AbstractModel):
         self.cost_fixed = Param(self.cost_fixed_rptv)
         self.cost_variable_rptv = Set(dimen=4, initialize=costs.cost_variable_indices)
         self.cost_variable = Param(self.cost_variable_rptv)
+        self.cost_variable_multiplier_rtsd = Set(
+            within=self.regional_indices * self.tech_all * self.time_season * self.time_of_day
+        )
+        self.cost_variable_multiplier = Param(
+            self.cost_variable_multiplier_rtsd,
+            within=Reals,
+            validate=costs.validate_cost_variable_multiplier,
+        )
 
         self.cost_invest_rtv = Set(
             within=self.regional_indices * self.tech_all * self.time_optimize

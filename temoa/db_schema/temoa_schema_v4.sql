@@ -193,6 +193,19 @@ CREATE TABLE IF NOT EXISTS cost_variable
     notes   TEXT,
     PRIMARY KEY (region, period, tech, vintage)
 );
+CREATE TABLE IF NOT EXISTS cost_variable_multiplier
+(
+    region     TEXT NOT NULL,
+    tech       TEXT NOT NULL
+        REFERENCES technology (tech),
+    season     TEXT NOT NULL
+        REFERENCES time_season (season),
+    tod        TEXT NOT NULL
+        REFERENCES time_of_day (tod),
+    multiplier REAL NOT NULL,
+    notes      TEXT,
+    PRIMARY KEY (region, tech, season, tod)
+);
 CREATE TABLE IF NOT EXISTS demand
 (
     region    TEXT,

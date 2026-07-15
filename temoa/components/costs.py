@@ -23,7 +23,7 @@ if TYPE_CHECKING:
     from pyomo.core.base.component import ComponentData
 
     from temoa.core.model import TemoaModel
-    from temoa.types.core_types import Period, Region, Technology, Vintage
+    from temoa.types.core_types import Period, Region, Season, Technology, TimeOfDay, Vintage
 
 from logging import getLogger
 
@@ -102,6 +102,35 @@ def cost_fixed_indices(model: TemoaModel) -> set[tuple[Region, Period, Technolog
 
 def cost_variable_indices(model: TemoaModel) -> set[tuple[Region, Period, Technology, Vintage]]:
     return model.active_activity_rptv
+
+
+def validate_cost_variable_multiplier(
+    model: TemoaModel,
+    _multiplier: float,
+    _r: Region,
+    t: Technology,
+    _s: Season,
+    _d: TimeOfDay,
+) -> bool:
+    """Restrict time-slice variable-cost multipliers to non-annual technologies."""
+    if t in model.tech_annual:
+        logger.error("cost_variable_multiplier cannot be specified for annual technology '%s'", t)
+        return False
+    return True
+
+
+def get_cost_variable_multiplier(
+    model: TemoaModel,
+    r: Region,
+    t: Technology,
+    s: Season,
+    d: TimeOfDay,
+) -> float:
+    """Return a time-slice multiplier, defaulting to one for unspecified slices."""
+    index = (r, t, s, d)
+    if index not in model.cost_variable_multiplier:
+        return 1.0
+    return float(value(model.cost_variable_multiplier[index]))
 
 
 def lifetime_loan_process_indices(model: TemoaModel) -> set[tuple[Region, Technology, Vintage]]:
@@ -363,7 +392,8 @@ def period_cost_rule(model: TemoaModel, p: int) -> float | Expression:
     variable_costs = quicksum(
         fixed_or_variable_cost(
             model.v_flow_out[r, p, s, d, S_i, S_t, S_v, S_o],
-            value(model.cost_variable[r, p, S_t, S_v]),
+            value(model.cost_variable[r, p, S_t, S_v])
+            * get_cost_variable_multiplier(model, r, S_t, s, d),
             value(model.period_length[p]),
             global_discount_rate,
             p_0,

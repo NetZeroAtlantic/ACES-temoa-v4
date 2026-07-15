@@ -440,6 +440,7 @@ def poll_cost_results(
         if t not in model.tech_annual:
             activity = sum(
                 value(model.v_flow_out[r, p, S_s, S_d, S_i, t, v, S_o])
+                * costs.get_cost_variable_multiplier(model, r, t, S_s, S_d)
                 for S_i in model.process_inputs[r, p, t, v]
                 for S_o in model.process_outputs_by_input[r, p, t, v, S_i]
                 for S_s in model.time_season

@@ -121,6 +121,14 @@ cost_variable {
    TEXT notes
    TEXT units
 }
+cost_variable_multiplier {
+ TEXT region PK
+   TEXT tech PK
+   TEXT season PK
+   TEXT tod PK
+   REAL multiplier
+   TEXT notes
+}
 demand {
  TEXT commodity PK
    INTEGER period PK
@@ -702,6 +710,9 @@ time_period one or zero--0+ cost_invest : has
 time_period 1--0+ cost_variable : has
 time_period 1--0+ cost_variable : has
 technology 1--0+ cost_variable : has
+technology one or zero--0+ cost_variable_multiplier : has
+season_label one or zero--0+ cost_variable_multiplier : has
+time_of_day one or zero--0+ cost_variable_multiplier : has
 time_period one or zero--0+ demand : has
 commodity one or zero--0+ demand : has
 time_period one or zero--0+ demand_specific_distribution : has

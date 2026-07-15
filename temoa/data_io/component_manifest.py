@@ -312,6 +312,15 @@ def build_manifest(model: TemoaModel) -> list[LoadItem]:
             validation_map=(0, 2, 3),
         ),
         LoadItem(
+            component=model.cost_variable_multiplier,
+            table='cost_variable_multiplier',
+            columns=['region', 'tech', 'season', 'tod', 'multiplier'],
+            validator_name='viable_rt',
+            validation_map=(0, 1),
+            is_period_filtered=False,
+            is_table_required=False,
+        ),
+        LoadItem(
             component=model.cost_emission,
             table='cost_emission',
             columns=['region', 'period', 'emis_comm', 'cost'],
