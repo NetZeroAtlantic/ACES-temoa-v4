@@ -42,7 +42,7 @@ def emission_activity_indices(
         (r, e, i, t, v, o)
         for r, i, t, v, o in model.efficiency.sparse_keys()
         for e in model.commodity_emissions
-        if r in model.regions  # omit any exchange/groups
+        if r in model.regional_indices
     }
 
 

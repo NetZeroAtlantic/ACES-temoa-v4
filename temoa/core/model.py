@@ -567,7 +567,7 @@ class TemoaModel(AbstractModel):
         )
 
         self.cost_emission_rpe = Set(
-            within=self.regions * self.time_optimize * self.commodity_emissions
+            within=self.regional_indices * self.time_optimize * self.commodity_emissions
         )
         self.cost_emission = Param(self.cost_emission_rpe)
         self.output_based_standard_rpeito = Set(

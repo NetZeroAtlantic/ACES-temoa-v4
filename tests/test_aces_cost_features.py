@@ -5,11 +5,12 @@ from __future__ import annotations
 import contextlib
 import sqlite3
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from temoa._internal.temoa_sequencer import TemoaSequencer
-from temoa.components import costs
+from temoa.components import costs, emissions
 from temoa.core.config import TemoaConfig
 from temoa.model_checking import network_model_data
 
@@ -122,6 +123,20 @@ def test_negative_effective_variable_cost_is_marked_for_cycle_checks(tmp_path: P
         lookup = network_model_data._fetch_lookup_data(con.cursor())
 
     assert 'TechOrdinary' in lookup['neg_cost_techs']
+
+
+def test_exchange_region_emissions_are_indexed() -> None:
+    model = SimpleNamespace(
+        efficiency=SimpleNamespace(
+            sparse_keys=lambda: {('R_EXP-NB', 'ELC', 'E_TRANS-QC', 1900, 'ELCG-RPS')}
+        ),
+        commodity_emissions={'CO2e-Imports-Tax'},
+        regional_indices={'NB', 'R_EXP', 'R_EXP-NB'},
+    )
+
+    assert emissions.emission_activity_indices(model) == {
+        ('R_EXP-NB', 'CO2e-Imports-Tax', 'ELC', 'E_TRANS-QC', 1900, 'ELCG-RPS')
+    }
 
 
 def test_output_based_standard_credits_do_not_change_physical_emissions(tmp_path: Path) -> None:
