@@ -17,6 +17,8 @@ from typing import TYPE_CHECKING, cast
 
 from pyomo.environ import value
 
+from .utils import explicit_param_keys
+
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
@@ -60,8 +62,8 @@ def lifetime_process_indices(model: TemoaModel) -> set[tuple[Region, Technology,
     Based on the efficiency parameter's indices, this function returns the set of
     process indices that may be specified in the lifetime_process parameter.
     """
-    indices = {(r, t, v) for r, i, t, v, o in set(model.efficiency.sparse_keys())}
-    indices = indices | set(model.existing_capacity.sparse_keys())
+    indices = {(r, t, v) for r, i, t, v, o in explicit_param_keys(model.efficiency)}
+    indices = indices | set(explicit_param_keys(model.existing_capacity))
 
     return indices
 
@@ -146,9 +148,9 @@ def populate_core_dictionaries(model: TemoaModel) -> None:
     """
     logger.debug('Populating core sparse dictionaries from efficiency parameter.')
     first_period = min(model.time_future)
-    exist_indices = set(model.existing_capacity.sparse_keys())
+    exist_indices = set(explicit_param_keys(model.existing_capacity))
 
-    for r, i, t, v, o in set(model.efficiency.sparse_keys()):
+    for r, i, t, v, o in explicit_param_keys(model.efficiency):
         # A. Basic data validation and warnings
         process = (r, t, v)
         lifetime = value(model.lifetime_process[process])
@@ -226,13 +228,13 @@ def populate_core_dictionaries(model: TemoaModel) -> None:
 def create_survival_curve(model: TemoaModel) -> None:
     rtv_interpolated = set()  # so we only need one warning
 
-    for r, _, t, v, _ in model.efficiency.sparse_keys():
+    for r, _, t, v, _ in explicit_param_keys(model.efficiency):
         model.is_survival_curve_process[r, t, v] = False  # by default
-    for r, t, v in model.existing_capacity.sparse_keys():
+    for r, t, v in explicit_param_keys(model.existing_capacity):
         model.is_survival_curve_process[r, t, v] = False  # by default
 
     # Collect rptv indices into (r, t, v): p dictionary
-    for r, p, t, v in model.lifetime_survival_curve.sparse_keys():
+    for r, p, t, v in explicit_param_keys(model.lifetime_survival_curve):
         model.survival_curve_periods.setdefault((r, t, v), set()).add(p)
         model.is_survival_curve_process[r, t, v] = True
 
@@ -318,8 +320,10 @@ def check_efficiency_indices(model: TemoaModel) -> None:
     """
     # TODO:  This could be upgraded to scan for finer resolution
     #        by checking by REGION and PERIOD...  Each region/period is unique.
-    c_outputs = {o for r, i, t, v, o in model.efficiency.sparse_keys()}
-    c_outputs = c_outputs | {o for r, t, v, o in model.end_of_life_output.sparse_keys()}
+    c_outputs = {o for r, i, t, v, o in explicit_param_keys(model.efficiency)}
+    c_outputs = c_outputs | {
+        o for r, t, v, o in explicit_param_keys(model.end_of_life_output)
+    }
 
     diff = model.commodity_demand - c_outputs
     if diff:
@@ -333,8 +337,10 @@ def check_efficiency_indices(model: TemoaModel) -> None:
         logger.error(f_msg)
         raise ValueError(f_msg)
 
-    c_inputs = {i for r, i, t, v, o in model.efficiency.sparse_keys()}
-    c_inputs = c_inputs | {i for r, i, t, v in model.construction_input.sparse_keys()}
+    c_inputs = {i for r, i, t, v, o in explicit_param_keys(model.efficiency)}
+    c_inputs = c_inputs | {
+        i for r, i, t, v in explicit_param_keys(model.construction_input)
+    }
     c_carrier = c_inputs | c_outputs
 
     symdiff = c_carrier.symmetric_difference(model.commodity_carrier)
@@ -349,10 +355,10 @@ def check_efficiency_indices(model: TemoaModel) -> None:
         logger.error(f_msg)
         raise ValueError(f_msg)
 
-    techs = {t for r, i, t, v, o in model.efficiency.sparse_keys()}
-    techs = techs | {t for r, t, v, o in model.end_of_life_output.sparse_keys()}
-    techs = techs | {t for r, i, t, v in model.construction_input.sparse_keys()}
-    techs = techs | {t for r, e, t, v in model.emission_end_of_life.sparse_keys()}
+    techs = {t for r, i, t, v, o in explicit_param_keys(model.efficiency)}
+    techs = techs | {t for r, t, v, o in explicit_param_keys(model.end_of_life_output)}
+    techs = techs | {t for r, i, t, v in explicit_param_keys(model.construction_input)}
+    techs = techs | {t for r, e, t, v in explicit_param_keys(model.emission_end_of_life)}
 
     symdiff = techs.symmetric_difference(model.tech_production)
     if symdiff:
@@ -369,7 +375,7 @@ def check_efficiency_indices(model: TemoaModel) -> None:
 def check_efficiency_variable(model: TemoaModel) -> None:
     count_ritvo = {}
     # Pull non-variable efficiency by default
-    for r, i, t, v, o in model.efficiency.sparse_keys():
+    for r, i, t, v, o in explicit_param_keys(model.efficiency):
         if (r, t, v) not in model.process_periods:
             # Probably an existing vintage that retires in p0
             # Still want it for end of life flows
@@ -379,7 +385,7 @@ def check_efficiency_variable(model: TemoaModel) -> None:
 
     annual = set()
     # Check for bad values and count up the good ones
-    for r, _s, _d, i, t, v, o in model.efficiency_variable.sparse_keys():
+    for r, _s, _d, i, t, v, o in explicit_param_keys(model.efficiency_variable):
         if t in model.tech_annual:
             annual.add(t)
 
@@ -415,7 +421,7 @@ def check_existing_capacity(model: TemoaModel) -> None:
     """
     Check that all existing capacities are properly accounted for in the model.
     """
-    for r, t, v in model.existing_capacity.sparse_keys():
+    for r, t, v in explicit_param_keys(model.existing_capacity):
         cap = value(model.existing_capacity[r, t, v])
         if cap <= 0:
             msg = (

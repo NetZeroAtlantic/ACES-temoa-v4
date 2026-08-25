@@ -8,9 +8,10 @@ building Pyomo expressions from strings or calculating time-variable efficiencie
 
 from __future__ import annotations
 
+from collections.abc import KeysView
 from enum import StrEnum
 from logging import getLogger
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Protocol
 
 from pyomo.environ import value
 
@@ -31,6 +32,25 @@ if TYPE_CHECKING:
 
 
 logger = getLogger(__name__)
+
+
+class _ExplicitParamData(Protocol):
+    """Structural type for Pyomo indexed components with explicit data."""
+
+    _data: dict[Any, Any]
+
+
+def explicit_param_keys(param: _ExplicitParamData) -> KeysView[Any]:
+    """Return only indices explicitly stored on a Pyomo parameter.
+
+    Pyomo 6.10's ``sparse_keys()`` can traverse the complete finite index set
+    before filtering it against the stored data.  That is prohibitively slow
+    for sparse Temoa parameters declared over large Cartesian products.  Pyomo
+    stores explicitly supplied parameter values in ``_data``; iterating its
+    keys preserves the intended sparse semantics without scanning defaulted
+    combinations.
+    """
+    return param._data.keys()
 
 
 class Operator(StrEnum):
