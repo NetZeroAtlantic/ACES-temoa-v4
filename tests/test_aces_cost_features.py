@@ -8,6 +8,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from pyomo.environ import value
 
 from temoa._internal.temoa_sequencer import TemoaSequencer
 from temoa.components import costs, emissions
@@ -137,6 +138,184 @@ def test_exchange_region_emissions_are_indexed() -> None:
     assert emissions.emission_activity_indices(model) == {
         ('R_EXP-NB', 'CO2e-Imports-Tax', 'ELC', 'E_TRANS-QC', 1900, 'ELCG-RPS')
     }
+
+
+def test_emission_performance_standard_counts_direct_and_linked_outputs(
+    tmp_path: Path,
+) -> None:
+    db_path = _build_feature_database(
+        tmp_path,
+        'emission_performance_standard',
+        """
+        INSERT INTO commodity
+            (name, flag, description)
+        VALUES ('policy_fuel', 'p', 'Fuel supplied by the linked upstream process');
+
+        INSERT INTO technology
+            (tech, flag, sector, unlim_cap)
+        VALUES ('TechUpstream', 'p', 'energy', 1);
+
+        UPDATE efficiency
+        SET input_comm = 'policy_fuel'
+        WHERE region = 'Testregion'
+          AND tech = 'TechOrdinary'
+          AND output_comm = 'ordinary_out';
+
+        UPDATE emission_activity
+        SET input_comm = 'policy_fuel'
+        WHERE region = 'Testregion'
+          AND tech = 'TechOrdinary'
+          AND output_comm = 'ordinary_out';
+
+        INSERT INTO efficiency
+            (region, input_comm, tech, vintage, output_comm, efficiency)
+        VALUES ('Testregion', 'ordinary_in', 'TechUpstream', 2000, 'policy_fuel', 1.0);
+
+        INSERT INTO emission_activity
+            (region, emis_comm, input_comm, tech, vintage, output_comm, activity)
+        VALUES (
+            'Testregion', 'emission', 'ordinary_in', 'TechUpstream', 2000,
+            'policy_fuel', 2.0
+        );
+
+        UPDATE emission_activity
+        SET activity = -0.5
+        WHERE region = 'Testregion'
+          AND tech = 'TechCurtailment'
+          AND output_comm = 'curtailment_out';
+
+        INSERT INTO emission_performance_standard
+            (policy, region, period, emis_comm, intensity)
+        VALUES ('CER', 'Testregion', 2000, 'emission', 0.75);
+
+        INSERT INTO policy_technology
+            (policy, region, tech, output_comm)
+        VALUES ('CER', 'Testregion', 'TechOrdinary', 'ordinary_out');
+
+        INSERT INTO policy_emission_link
+            (policy, region, tech, output_comm, linked_tech,
+             linked_output_comm, allocation)
+        VALUES
+            ('CER', 'Testregion', 'TechOrdinary', 'ordinary_out',
+             'TechUpstream', 'policy_fuel', 1.0),
+            ('CER', 'Testregion', 'TechOrdinary', 'ordinary_out',
+             'TechCurtailment', 'curtailment_out', 1.0);
+        """,
+    )
+
+    sequencer = _run_feature_model(db_path, tmp_path)
+    model = sequencer.pf_solved_instance
+    assert model is not None
+
+    direct = value(
+        emissions._process_output_emissions(
+            model, 'Testregion', 2000, 'emission', 'TechOrdinary', 'ordinary_out'
+        )
+    )
+    upstream = value(
+        emissions._linked_output_emissions(
+            model,
+            'Testregion',
+            2000,
+            'emission',
+            'TechOrdinary',
+            'ordinary_out',
+            'TechUpstream',
+            'policy_fuel',
+        )
+    )
+    downstream = value(
+        emissions._process_output_emissions(
+            model,
+            'Testregion',
+            2000,
+            'emission',
+            'TechCurtailment',
+            'curtailment_out',
+        )
+    )
+    constraint = model.emission_performance_standard_constraint[
+        'CER', 'Testregion', 2000, 'emission'
+    ]
+
+    assert direct == pytest.approx(0.3)
+    assert upstream == pytest.approx(0.6)
+    assert downstream == pytest.approx(-0.15)
+    assert value(constraint.body) == pytest.approx(0.0)
+
+
+def test_emission_performance_standard_rejects_link_without_emission_activity(
+    tmp_path: Path,
+) -> None:
+    db_path = _build_feature_database(
+        tmp_path,
+        'invalid_emission_performance_link',
+        """
+        INSERT INTO emission_performance_standard
+            (policy, region, period, emis_comm, intensity)
+        VALUES ('CER', 'Testregion', 2000, 'emission', 1.0);
+
+        INSERT INTO policy_technology
+            (policy, region, tech, output_comm)
+        VALUES ('CER', 'Testregion', 'TechOrdinary', 'ordinary_out');
+
+        INSERT INTO policy_emission_link
+            (policy, region, tech, output_comm, linked_tech,
+             linked_output_comm, allocation)
+        VALUES ('CER', 'Testregion', 'TechOrdinary', 'ordinary_out',
+                'TechEmbodied', 'embodied_out', 1.0);
+        """,
+    )
+
+    with pytest.raises((ValueError, RuntimeError), match='validate_emission_performance_standard'):
+        _run_feature_model(db_path, tmp_path)
+
+
+def test_emission_performance_standard_skips_inactive_covered_process(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    db_path = _build_feature_database(
+        tmp_path,
+        'inactive_emission_performance_process',
+        """
+        INSERT INTO emission_performance_standard
+            (policy, region, period, emis_comm, intensity)
+        VALUES ('CER', 'Testregion', 2005, 'emission', 1.0);
+
+        INSERT INTO policy_technology
+            (policy, region, tech, output_comm)
+        VALUES ('CER', 'Testregion', 'TechEndOfLife', 'eol_out');
+        """,
+    )
+
+    sequencer = _run_feature_model(db_path, tmp_path)
+    model = sequencer.pf_solved_instance
+    assert model is not None
+    assert ('CER', 'Testregion', 2005, 'emission') not in (
+        model.emission_performance_standard_constraint
+    )
+    assert 'has no active process in period 2005' in caplog.text
+
+
+def test_emission_performance_standard_rejects_active_process_without_accounting_source(
+    tmp_path: Path,
+) -> None:
+    db_path = _build_feature_database(
+        tmp_path,
+        'missing_emission_performance_source',
+        """
+        INSERT INTO emission_performance_standard
+            (policy, region, period, emis_comm, intensity)
+        VALUES ('CER', 'Testregion', 2000, 'emission', 1.0);
+
+        INSERT INTO policy_technology
+            (policy, region, tech, output_comm)
+        VALUES ('CER', 'Testregion', 'TechEmbodied', 'embodied_out');
+        """,
+    )
+
+    with pytest.raises((ValueError, RuntimeError), match='validate_emission_performance_standard'):
+        _run_feature_model(db_path, tmp_path)
 
 
 def test_output_based_standard_credits_do_not_change_physical_emissions(tmp_path: Path) -> None:

@@ -11,10 +11,11 @@ This module is responsible for:
 
 from __future__ import annotations
 
+from logging import getLogger
 from typing import TYPE_CHECKING
 
 from pyomo.core import quicksum
-from pyomo.environ import value
+from pyomo.environ import Constraint, value
 
 if TYPE_CHECKING:
     from temoa.core.model import TemoaModel
@@ -28,6 +29,8 @@ if TYPE_CHECKING:
         TimeOfDay,
         Vintage,
     )
+
+logger = getLogger(__name__)
 
 
 # ============================================================================
@@ -151,3 +154,303 @@ def linked_emissions_tech_constraint(
         )
 
     return -primary_flow == linked_flow
+
+
+def _process_output_emissions(
+    model: TemoaModel,
+    r: Region,
+    p: Period,
+    e: Commodity,
+    t: Technology,
+    o: Commodity,
+) -> ExprLike:
+    """Return emissions from one technology/output pair in one model period."""
+    activity_indices = [
+        (i, v)
+        for er, ee, i, et, v, eo in model.emission_activity.sparse_keys()
+        if er == r
+        and ee == e
+        and et == t
+        and eo == o
+        and (r, p, t, v) in model.active_activity_rptv
+    ]
+
+    if t in model.tech_annual:
+        return quicksum(
+            model.v_flow_out_annual[r, p, i, t, v, o]
+            * value(model.emission_activity[r, e, i, t, v, o])
+            for i, v in activity_indices
+        )
+
+    return quicksum(
+        model.v_flow_out[r, p, s, d, i, t, v, o] * value(model.emission_activity[r, e, i, t, v, o])
+        for i, v in activity_indices
+        for s in model.time_season
+        for d in model.time_of_day
+    )
+
+
+def _is_upstream_link(
+    model: TemoaModel,
+    r: Region,
+    p: Period,
+    covered_t: Technology,
+    covered_o: Commodity,
+    linked_o: Commodity,
+) -> bool:
+    """Return whether the linked output is an input to the covered process."""
+    return any(
+        linked_o in model.process_inputs_by_output.get((r, p, covered_t, v, covered_o), set())
+        for v in model.process_vintages.get((r, p, covered_t), set())
+    )
+
+
+def _covered_process_is_active(
+    model: TemoaModel,
+    r: Region,
+    p: Period,
+    t: Technology,
+    o: Commodity,
+) -> bool:
+    """Return whether a covered technology/output has an active process path."""
+    return (r, p, t) in model.process_vintages and any(
+        o in model.process_outputs.get((r, p, t, v), set()) for v in model.process_vintages[r, p, t]
+    )
+
+
+def _upstream_link_emissions(
+    model: TemoaModel,
+    r: Region,
+    p: Period,
+    e: Commodity,
+    covered_t: Technology,
+    covered_o: Commodity,
+    linked_t: Technology,
+    linked_o: Commodity,
+) -> ExprLike:
+    """Apply a linked upstream emission rate to the covered process's fuel use."""
+    rates = {
+        float(value(model.emission_activity[r, e, i, linked_t, v, linked_o]))
+        for er, ee, i, et, v, eo in model.emission_activity.sparse_keys()
+        if er == r
+        and ee == e
+        and et == linked_t
+        and eo == linked_o
+        and (r, p, linked_t, v) in model.active_activity_rptv
+    }
+    # Validation guarantees that an upstream link has exactly one applicable rate.
+    rate = next(iter(rates)) if rates else 0.0
+    paths = [
+        (v, linked_o)
+        for v in model.process_vintages.get((r, p, covered_t), set())
+        if linked_o in model.process_inputs_by_output.get((r, p, covered_t, v, covered_o), set())
+    ]
+
+    if covered_t in model.tech_annual:
+        return quicksum(
+            model.v_flow_out_annual[r, p, i, covered_t, v, covered_o]
+            / value(model.efficiency[r, i, covered_t, v, covered_o])
+            * rate
+            for v, i in paths
+        )
+
+    return quicksum(
+        model.v_flow_out[r, p, s, d, i, covered_t, v, covered_o]
+        / value(model.efficiency[r, i, covered_t, v, covered_o])
+        * rate
+        for v, i in paths
+        for s in model.time_season
+        for d in model.time_of_day
+    )
+
+
+def _linked_output_emissions(
+    model: TemoaModel,
+    r: Region,
+    p: Period,
+    e: Commodity,
+    covered_t: Technology,
+    covered_o: Commodity,
+    linked_t: Technology,
+    linked_o: Commodity,
+) -> ExprLike:
+    """Account for an upstream rate or an actual downstream linked flow."""
+    if _is_upstream_link(model, r, p, covered_t, covered_o, linked_o):
+        return _upstream_link_emissions(model, r, p, e, covered_t, covered_o, linked_t, linked_o)
+    return _process_output_emissions(model, r, p, e, linked_t, linked_o)
+
+
+def validate_emission_performance_standard(model: TemoaModel) -> bool:
+    """Validate policy membership, active paths, and linked emissions records."""
+    valid = True
+    standards = set(model.emission_performance_standard.sparse_keys())
+
+    for policy, r, p, e in standards:
+        covered = {
+            (t, o)
+            for row_policy, row_r, t, o in model.policy_technology
+            if row_policy == policy and row_r == r
+        }
+        if not covered:
+            logger.error(
+                'Emission policy %s in %s period %s has no policy_technology rows',
+                policy,
+                r,
+                p,
+            )
+            valid = False
+
+        links_by_covered = {(t, o): [] for t, o in covered}
+        for row in model.policy_emission_link.sparse_keys():
+            row_policy, row_r, t, o, linked_t, linked_o = row
+            if row_policy == policy and row_r == r:
+                links_by_covered.setdefault((t, o), []).append((linked_t, linked_o))
+
+        for t, o in covered:
+            if not _covered_process_is_active(model, r, p, t, o):
+                logger.warning(
+                    'policy_technology row (%s, %s, %s, %s) has no active process in period %s',
+                    policy,
+                    r,
+                    t,
+                    o,
+                    p,
+                )
+                continue
+
+            direct_ea = any(
+                er == r
+                and ee == e
+                and et == t
+                and eo == o
+                and (r, p, t, v) in model.active_activity_rptv
+                for er, ee, _i, et, v, eo in model.emission_activity.sparse_keys()
+            )
+            if not direct_ea and not links_by_covered.get((t, o)):
+                logger.error(
+                    'Active policy_technology row (%s, %s, %s, %s) has neither a direct '
+                    'emission_activity for %s nor a policy_emission_link in period %s',
+                    policy,
+                    r,
+                    t,
+                    o,
+                    e,
+                    p,
+                )
+                valid = False
+            if (r, p, t) not in model.v_capacity_available_by_period_and_tech:
+                logger.error(
+                    'Covered policy technology %s in %s has no available-capacity variable '
+                    'in period %s',
+                    t,
+                    r,
+                    p,
+                )
+                valid = False
+
+        links = [
+            (t, o, linked_t, linked_o, value(model.policy_emission_link[row]))
+            for row in model.policy_emission_link.sparse_keys()
+            for row_policy, row_r, t, o, linked_t, linked_o in [row]
+            if row_policy == policy and row_r == r
+        ]
+        for t, o, linked_t, linked_o, allocation in links:
+            if (t, o) not in covered:
+                logger.error(
+                    'policy_emission_link for %s/%s is missing a corresponding '
+                    'policy_technology row for %s/%s',
+                    t,
+                    o,
+                    policy,
+                    r,
+                )
+                valid = False
+                continue
+            if not _covered_process_is_active(model, r, p, t, o):
+                # The covered contribution is zero, so its linked contribution is also zero.
+                continue
+            matching_ea = [
+                (i, v)
+                for er, ee, i, et, v, eo in model.emission_activity.sparse_keys()
+                if er == r
+                and ee == e
+                and et == linked_t
+                and eo == linked_o
+                and (r, p, linked_t, v) in model.active_activity_rptv
+            ]
+            if not matching_ea:
+                logger.error(
+                    'policy_emission_link (%s, %s, %s, %s -> %s, %s) has no matching '
+                    'active emission_activity for %s in period %s',
+                    policy,
+                    r,
+                    t,
+                    o,
+                    linked_t,
+                    linked_o,
+                    e,
+                    p,
+                )
+                valid = False
+            elif _is_upstream_link(model, r, p, t, o, linked_o):
+                rates = {
+                    float(value(model.emission_activity[r, e, i, linked_t, v, linked_o]))
+                    for i, v in matching_ea
+                }
+                if len(rates) != 1:
+                    logger.error(
+                        'Upstream policy_emission_link (%s, %s, %s, %s -> %s, %s) '
+                        'has multiple active emission rates %s in period %s; the rate cannot '
+                        'be mapped unambiguously to covered fuel use',
+                        policy,
+                        r,
+                        t,
+                        o,
+                        linked_t,
+                        linked_o,
+                        sorted(rates),
+                        p,
+                    )
+                    valid = False
+            if allocation <= 0:
+                logger.error('policy_emission_link allocation must be greater than zero')
+                valid = False
+
+    return valid
+
+
+def emission_performance_standard_constraint(
+    model: TemoaModel,
+    policy: str,
+    r: Region,
+    p: Period,
+    e: Commodity,
+) -> ExprLike:
+    """Limit direct plus linked emissions per unit of covered available capacity."""
+    covered = {
+        (t, o)
+        for row_policy, row_r, t, o in model.policy_technology
+        if row_policy == policy and row_r == r and _covered_process_is_active(model, r, p, t, o)
+    }
+
+    if not covered:
+        return Constraint.Skip
+
+    direct_emissions = quicksum(_process_output_emissions(model, r, p, e, t, o) for t, o in covered)
+    linked_emissions = quicksum(
+        _linked_output_emissions(model, r, p, e, t, o, linked_t, linked_o)
+        * value(model.policy_emission_link[row])
+        for row in model.policy_emission_link.sparse_keys()
+        for row_policy, row_r, t, o, linked_t, linked_o in [row]
+        if row_policy == policy and row_r == r and (t, o) in covered
+    )
+
+    # Count capacity once per technology even if a policy covers several outputs.
+    covered_techs = {t for t, _o in covered}
+    allowed_emissions = value(model.emission_performance_standard[policy, r, p, e]) * quicksum(
+        model.v_capacity_available_by_period_and_tech[r, p, t]
+        * value(model.capacity_to_activity[r, t])
+        for t in covered_techs
+    )
+
+    return direct_emissions + linked_emissions <= allowed_emissions

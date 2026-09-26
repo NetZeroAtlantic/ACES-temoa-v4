@@ -202,6 +202,10 @@ if TYPE_CHECKING:
         cost_variable: Param
         cost_variable_multiplier: Param
         output_based_standard: Param
+        emission_policy: Set
+        emission_performance_standard: Param
+        policy_technology: Set
+        policy_emission_link: Param
 
         # Model variables
         v_flow_out: Var
@@ -213,6 +217,7 @@ if TYPE_CHECKING:
         demand_constraint: Constraint
         commodity_balance_constraint: Constraint
         capacity_constraint: Constraint
+        emission_performance_standard_constraint: Constraint
 
         # Internal tracking dictionaries
         process_inputs: ProcessInputs

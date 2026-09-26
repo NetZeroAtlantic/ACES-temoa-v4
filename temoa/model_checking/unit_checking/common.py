@@ -18,6 +18,7 @@ input_tables_with_units = [
     'demand',
     'efficiency',
     'emission_activity',
+    'emission_performance_standard',
     'emission_embodied',
     'emission_end_of_life',
     'end_of_life_output',

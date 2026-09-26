@@ -670,6 +670,32 @@ class TemoaModel(AbstractModel):
         self.emission_activity_reitvo = Set(dimen=6, initialize=emissions.emission_activity_indices)
         self.emission_activity = Param(self.emission_activity_reitvo)
 
+        # Generic emissions-performance policies (for example, CER).
+        self.emission_policy = Set(validate=no_slash_or_pipe)
+        self.emission_performance_standard_prpe = Set(
+            within=self.emission_policy
+            * self.regions
+            * self.time_optimize
+            * self.commodity_emissions
+        )
+        self.emission_performance_standard = Param(
+            self.emission_performance_standard_prpe, domain=NonNegativeReals
+        )
+        self.policy_technology = Set(
+            dimen=4,
+            within=self.emission_policy * self.regions * self.tech_all * self.commodity_carrier,
+        )
+        self.policy_emission_link_prtoto = Set(
+            dimen=6,
+            within=self.emission_policy
+            * self.regions
+            * self.tech_all
+            * self.commodity_carrier
+            * self.tech_all
+            * self.commodity_carrier,
+        )
+        self.policy_emission_link = Param(self.policy_emission_link_prtoto, validate=validate_0to1)
+
         self.limit_capacity_share_constraint_rpgg = Set(
             within=self.regional_global_indices
             * self.time_optimize
@@ -1163,6 +1189,14 @@ class TemoaModel(AbstractModel):
         self.linked_emissions_tech_constraint = Constraint(
             self.linked_emissions_tech_constraint_rpsdtve,
             rule=emissions.linked_emissions_tech_constraint,
+        )
+
+        self.validate_emission_performance_standard = BuildCheck(
+            rule=emissions.validate_emission_performance_standard
+        )
+        self.emission_performance_standard_constraint = Constraint(
+            self.emission_performance_standard_prpe,
+            rule=emissions.emission_performance_standard_constraint,
         )
 
         self.progress_marker_9 = BuildAction(['Finished Constraints'], rule=progress_check)

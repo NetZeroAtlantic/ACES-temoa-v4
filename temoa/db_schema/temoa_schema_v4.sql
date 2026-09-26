@@ -322,6 +322,41 @@ CREATE TABLE IF NOT EXISTS emission_activity
     notes       TEXT,
     PRIMARY KEY (region, emis_comm, input_comm, tech, vintage, output_comm)
 );
+CREATE TABLE IF NOT EXISTS emission_performance_standard
+(
+    policy      TEXT    NOT NULL,
+    region      TEXT    NOT NULL REFERENCES region (region),
+    period      INTEGER NOT NULL REFERENCES time_period (period),
+    emis_comm   TEXT    NOT NULL REFERENCES commodity (name),
+    intensity   REAL    NOT NULL CHECK (intensity >= 0),
+    units       TEXT,
+    notes       TEXT,
+    PRIMARY KEY (policy, region, period, emis_comm)
+);
+CREATE TABLE IF NOT EXISTS policy_technology
+(
+    policy      TEXT NOT NULL,
+    region      TEXT NOT NULL REFERENCES region (region),
+    tech        TEXT NOT NULL REFERENCES technology (tech),
+    output_comm TEXT NOT NULL REFERENCES commodity (name),
+    notes       TEXT,
+    PRIMARY KEY (policy, region, tech, output_comm)
+);
+CREATE TABLE IF NOT EXISTS policy_emission_link
+(
+    policy             TEXT NOT NULL,
+    region             TEXT NOT NULL REFERENCES region (region),
+    tech               TEXT NOT NULL REFERENCES technology (tech),
+    output_comm        TEXT NOT NULL REFERENCES commodity (name),
+    linked_tech        TEXT NOT NULL REFERENCES technology (tech),
+    linked_output_comm TEXT NOT NULL REFERENCES commodity (name),
+    allocation         REAL NOT NULL DEFAULT 1.0
+        CHECK (allocation > 0 AND allocation <= 1),
+    notes              TEXT,
+    PRIMARY KEY (
+        policy, region, tech, output_comm, linked_tech, linked_output_comm
+    )
+);
 CREATE TABLE IF NOT EXISTS emission_embodied
 (
     region      TEXT,
