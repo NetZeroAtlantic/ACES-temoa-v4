@@ -39,6 +39,7 @@ input_tables_with_units = [
     # 'limit_growth_new_capacity_delta',
     'limit_new_capacity',
     'limit_resource',
+    'limit_seasonal_activity',
 ]
 
 output_tables_with_units = [

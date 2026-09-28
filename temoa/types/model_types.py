@@ -193,6 +193,8 @@ if TYPE_CHECKING:
         global_discount_rate: Param
         period_length: Param
         segment_fraction: Param
+        segment_fraction_per_season: Param
+        days_per_period: Param
         demand: Param
         efficiency: Param
         existing_capacity: Param
@@ -206,6 +208,7 @@ if TYPE_CHECKING:
         emission_performance_standard: Param
         policy_technology: Set
         policy_emission_link: Param
+        limit_seasonal_activity: Param
 
         # Model variables
         v_flow_out: Var
@@ -218,6 +221,7 @@ if TYPE_CHECKING:
         commodity_balance_constraint: Constraint
         capacity_constraint: Constraint
         emission_performance_standard_constraint: Constraint
+        limit_seasonal_activity_constraint: Constraint
 
         # Internal tracking dictionaries
         process_inputs: ProcessInputs

@@ -614,6 +614,67 @@ def limit_seasonal_capacity_factor_constraint(
     return expr
 
 
+def limit_seasonal_activity_constraint(
+    model: TemoaModel,
+    r: Region,
+    p: Period,
+    s: Season,
+    t: Technology,
+    o: Commodity,
+    op: str,
+) -> ExprLike:
+    r"""Limit a technology's output activity in a season using a daily rate.
+
+    The value stored in ``limit_seasonal_activity.daily_limit`` is an average
+    daily output-activity limit. It is converted to the modeled seasonal total
+    using the number of days in a model period and the season fraction:
+
+    .. math::
+        \sum_{R,D,I,T,V} \textbf{FO}_{r,p,s,d,i,t,v,o}
+        \quad \le, \ge, \text{or} = \quad
+        LIMSAct_{r,p,s,t,o} \cdot DAYS \cdot SFS_s
+
+    Annual technologies are allocated to the season with
+    ``segment_fraction_per_season``. The constraint always applies to output
+    activity; process efficiency is therefore not used.
+    """
+    regions = geography.gather_group_regions(model, r)
+    techs = technology.gather_group_techs(model, t)
+    activity_terms = []
+
+    for _r in regions:
+        for _t in techs:
+            for v in model.process_vintages.get((_r, p, _t), []):
+                for i in model.process_inputs_by_output.get((_r, p, _t, v, o), []):
+                    if _t in model.tech_annual:
+                        activity_terms.append(
+                            model.v_flow_out_annual[_r, p, i, _t, v, o]
+                            * model.segment_fraction_per_season[s]
+                        )
+                    else:
+                        activity_terms.extend(
+                            model.v_flow_out[_r, p, s, d, i, _t, v, o] for d in model.time_of_day
+                        )
+
+    if not activity_terms:
+        logger.warning(
+            'limit_seasonal_activity row %s has no active process producing %s '
+            'in period %s; the row is treated as zero activity.',
+            (r, s, t, o, op),
+            o,
+            p,
+        )
+        return Constraint.Skip
+
+    seasonal_activity = quicksum(activity_terms)
+    seasonal_limit = (
+        value(model.limit_seasonal_activity[r, p, s, t, o, op])
+        * value(model.days_per_period)
+        * value(model.segment_fraction_per_season[s])
+    )
+    return operator_expression(seasonal_activity, Operator(op), seasonal_limit)
+
+
 def limit_tech_input_split_constraint(
     model: TemoaModel,
     r: Region,

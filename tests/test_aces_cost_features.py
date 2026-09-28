@@ -108,6 +108,47 @@ def test_cost_variable_multiplier_rejects_annual_technology(tmp_path: Path) -> N
         _run_feature_model(db_path, tmp_path)
 
 
+def test_limit_seasonal_activity_limits_output_for_timesliced_and_annual_techs(
+    tmp_path: Path,
+) -> None:
+    db_path = _build_feature_database(
+        tmp_path,
+        'seasonal_activity',
+        """
+        UPDATE efficiency
+        SET efficiency = 0.5
+        WHERE region = 'Testregion'
+          AND tech = 'TechOrdinary'
+          AND output_comm = 'ordinary_out';
+
+        INSERT INTO limit_seasonal_activity
+            (region, period, season, tech_or_group, output_comm,
+             operator, daily_limit, units)
+        VALUES
+            ('Testregion', 2000, 'S1', 'TechOrdinary', 'ordinary_out',
+             'le', 0.000821917808219178, 'PJ/day'),
+            ('Testregion', 2000, 'S1', 'TechAnnual', 'annual_out',
+             'le', 0.0027397260273972603, 'PJ/day');
+        """,
+    )
+
+    sequencer = _run_feature_model(db_path, tmp_path)
+    model = sequencer.pf_solved_instance
+    assert model is not None
+
+    ordinary = model.limit_seasonal_activity_constraint[
+        'Testregion', 2000, 'S1', 'TechOrdinary', 'ordinary_out', 'le'
+    ]
+    annual = model.limit_seasonal_activity_constraint[
+        'Testregion', 2000, 'S1', 'TechAnnual', 'annual_out', 'le'
+    ]
+
+    assert value(ordinary.body) == pytest.approx(0.3)
+    assert value(ordinary.upper) == pytest.approx(0.3)
+    assert value(annual.body) == pytest.approx(1.0)
+    assert value(annual.upper) == pytest.approx(1.0)
+
+
 def test_negative_effective_variable_cost_is_marked_for_cycle_checks(tmp_path: Path) -> None:
     db_path = _build_feature_database(
         tmp_path,

@@ -630,6 +630,19 @@ class TemoaModel(AbstractModel):
             initialize=limits.limit_seasonal_capacity_factor_constraint_indices,
         )
 
+        self.limit_seasonal_activity_constraint_rpstco = Set(
+            within=self.regional_global_indices
+            * self.time_optimize
+            * self.time_season
+            * self.tech_or_group
+            * self.commodity_carrier
+            * self.operator
+        )
+        self.limit_seasonal_activity = Param(
+            self.limit_seasonal_activity_constraint_rpstco,
+            domain=NonNegativeReals,
+        )
+
         self.limit_annual_capacity_factor_constraint_rtvo = Set(
             within=self.regional_global_indices
             * self.tech_or_group
@@ -1086,6 +1099,11 @@ class TemoaModel(AbstractModel):
         self.limit_seasonal_capacity_factor_constraint = Constraint(
             self.limit_seasonal_capacity_factor_constraint_rpst,
             rule=limits.limit_seasonal_capacity_factor_constraint,
+        )
+
+        self.limit_seasonal_activity_constraint = Constraint(
+            self.limit_seasonal_activity_constraint_rpstco,
+            rule=limits.limit_seasonal_activity_constraint,
         )
 
         self.limit_capacity_constraint = Constraint(

@@ -727,6 +727,20 @@ def build_manifest(model: TemoaModel) -> list[LoadItem]:
             is_table_required=False,
         ),
         LoadItem(
+            component=model.limit_seasonal_activity,
+            table='limit_seasonal_activity',
+            columns=[
+                'region',
+                'period',
+                'season',
+                'tech_or_group',
+                'output_comm',
+                'operator',
+                'daily_limit',
+            ],
+            is_table_required=False,
+        ),
+        LoadItem(
             component=model.limit_annual_capacity_factor,
             table='limit_annual_capacity_factor',
             columns=['region', 'tech_or_group', 'vintage', 'output_comm', 'operator', 'factor'],

@@ -660,6 +660,24 @@ CREATE TABLE IF NOT EXISTS limit_seasonal_capacity_factor
 	notes	TEXT,
 	PRIMARY KEY(region, season, tech_or_group, operator)
 );
+CREATE TABLE IF NOT EXISTS limit_seasonal_activity
+(
+    region        TEXT NOT NULL
+        REFERENCES region (region),
+    period        INTEGER NOT NULL
+        REFERENCES time_period (period),
+    season        TEXT NOT NULL
+        REFERENCES time_season (season),
+    tech_or_group TEXT NOT NULL,
+    output_comm   TEXT NOT NULL
+        REFERENCES commodity (name),
+    operator      TEXT NOT NULL DEFAULT 'le'
+        REFERENCES operator (operator),
+    daily_limit   REAL NOT NULL CHECK (daily_limit >= 0),
+    units         TEXT,
+    notes         TEXT,
+    PRIMARY KEY (region, period, season, tech_or_group, output_comm, operator)
+);
 CREATE TABLE IF NOT EXISTS limit_tech_input_split
 (
     region         TEXT,

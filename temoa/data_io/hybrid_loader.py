@@ -880,6 +880,9 @@ class HybridLoader:
             model.limit_seasonal_capacity_factor.name: (
                 model.limit_seasonal_capacity_factor_constraint_rst.name
             ),
+            model.limit_seasonal_activity.name: (
+                model.limit_seasonal_activity_constraint_rpstco.name
+            ),
             model.limit_activity_share.name: model.limit_activity_share_constraint_rpgg.name,
             model.limit_annual_capacity_factor.name: (
                 model.limit_annual_capacity_factor_constraint_rtvo.name
