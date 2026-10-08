@@ -40,7 +40,7 @@ def _run_feature_model(db_path: Path, tmp_path: Path) -> TemoaSequencer:
         input_database=db_path,
         output_database=db_path,
         output_path=tmp_path,
-        solver_name='appsi_highs',
+        solver='appsi_highs',
         time_sequencing='seasonal_timeslices',
         reserve_margin='static',
         silent=True,

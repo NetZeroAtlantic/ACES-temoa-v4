@@ -9,6 +9,7 @@ SPDX-License-Identifier: MIT
 """
 
 import logging
+from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
 from pyomo.core import BuildCheck, Set, Var
@@ -38,7 +39,9 @@ from temoa.components import (
     storage,
     technology,
     time,
+    utils,
 )
+from temoa.extensions.framework import apply_model_extension_hooks, resolve_extension_specs
 from temoa.model_checking.validators import (
     no_slash_or_pipe,
     region_check,
@@ -100,8 +103,16 @@ class TemoaModel(AbstractModel):
     # this is used in several places outside this class, and this provides no-build access to it
     default_lifetime_tech = 40
 
-    def __init__(self, *args: object, **kwargs: object) -> None:
+    def __init__(
+        self,
+        *args: object,
+        extensions: Sequence[str] | None = None,
+        **kwargs: object,
+    ) -> None:
         AbstractModel.__init__(self, *args, **kwargs)
+        self.enabled_extensions = tuple(extensions or ())
+        self.extension_specs = resolve_extension_specs(self.enabled_extensions)
+        self.available_output_function = utils.available_output_base
 
         ################################################
         #       Internally used Data Containers        #
@@ -157,6 +168,9 @@ class TemoaModel(AbstractModel):
         # {(r, t, v): set(p)} periods in which a process can economically or naturally retire
         self.retirement_periods: t.RetirementPeriodsDict = {}
         self.process_vintages: t.ProcessVintagesDict = {}
+        """current available (within lifespan) vintages {(r, p, t) : set(v)}"""
+        self.group_built_processes: t.GroupBuiltProcessesDict = {}
+        self.group_active_processes: t.GroupActiveProcessesDict = {}
         # {(r, t, v): set(p)} periods for which the process has a defined survival fraction
         self.survival_curve_periods: t.SurvivalCurvePeriodsDict = {}
         """current available (within lifespan) vintages {(r, p, t) : set(v)}"""
@@ -213,9 +227,9 @@ class TemoaModel(AbstractModel):
             ordered=True, initialize=time.init_set_time_optimize, within=self.time_future
         )
         # Define time period vintages to track capacity installation
-        self.vintage_exist = Set(ordered=True, initialize=time.init_set_vintage_exist)
+        self.vintage_exist = Set(ordered=True)
         self.vintage_optimize = Set(ordered=True, initialize=time.init_set_vintage_optimize)
-        self.vintage_all = Set(initialize=self.time_exist | self.time_optimize)
+        self.vintage_all = Set(initialize=self.vintage_exist | self.time_optimize)
         # Perform some basic validation on the specified time periods.
         self.validate_time = BuildAction(rule=time.validate_time)
 
@@ -336,7 +350,9 @@ class TemoaModel(AbstractModel):
         # Define time-related parameters
         # Basic period construction
         self.time_sequencing = Set()  # How do states carry between time segments?
-        self.period_length = Param(self.time_optimize, initialize=time.param_period_length)
+        self.period_length = Param(
+            self.time_optimize | self.time_exist, initialize=time.param_period_length
+        )
         self.days_per_period = Param(domain=PositiveReals, default=365.0)
         self.time_of_day_hours = Param(self.time_of_day, domain=PositiveReals, default=1.0)
         self.segment_fraction_per_season = Param(self.time_season)
@@ -384,6 +400,10 @@ class TemoaModel(AbstractModel):
         self.capacity_to_activity = Param(self.regional_indices, self.tech_all, default=1)
 
         self.existing_capacity = Param(self.regional_indices, self.tech_exist, self.vintage_exist)
+        # This is needed to handle past retirements in myopic mode. Maybe it will find other uses.
+        self.retired_existing_capacity = Param(
+            self.regional_indices, self.time_exist, self.tech_exist, self.vintage_exist, default=0
+        )
 
         # Dev Note:  The below is temporarily useful for passing down to validator to find
         # set violations
@@ -432,9 +452,8 @@ class TemoaModel(AbstractModel):
             default=1,
         )
 
-        self.lifetime_tech = Param(
-            self.regional_indices, self.tech_all, default=TemoaModel.default_lifetime_tech
-        )
+        self.lifetime_tech_rt = Set(dimen=2, initialize=technology.lifetime_tech_indices)
+        self.lifetime_tech = Param(self.lifetime_tech_rt, default=TemoaModel.default_lifetime_tech)
 
         self.lifetime_process_rtv = Set(dimen=3, initialize=technology.lifetime_process_indices)
         self.lifetime_process = Param(
@@ -444,7 +463,7 @@ class TemoaModel(AbstractModel):
         self.lifetime_survival_curve = Param(
             self.regional_indices,
             Integers,
-            self.tech_all,
+            self.tech_all | self.tech_exist,
             self.vintage_all,
             default=technology.get_default_survival,
             validate=validate_0to1,
@@ -539,6 +558,11 @@ class TemoaModel(AbstractModel):
         self.initialize_CapacityFactors = BuildAction(rule=capacity.check_capacity_factor_process)
         self.initialize_efficiency_variable = BuildAction(rule=technology.check_efficiency_variable)
 
+        if 'unit_commitment' in self.enabled_extensions:
+            import temoa.extensions.unit_commitment.core.model as uc
+
+            uc.register_early_components(self)
+
         # Define technology cost parameters
         self.cost_fixed_rptv = Set(dimen=4, initialize=costs.cost_fixed_indices)
         self.cost_fixed = Param(self.cost_fixed_rptv)
@@ -557,6 +581,12 @@ class TemoaModel(AbstractModel):
             within=self.regional_indices * self.tech_all * self.time_optimize
         )
         self.cost_invest = Param(self.cost_invest_rtv)
+
+        # Inject cost_invest_eos extension components prior to loan params, if active
+        if 'eos' in self.enabled_extensions:
+            import temoa.extensions.economies_of_scale.core.model as eos
+
+            eos.register_early_eos_components(self)
 
         self.default_loan_rate = Param(domain=NonNegativeReals)
         self.loan_rate = Param(
@@ -617,7 +647,12 @@ class TemoaModel(AbstractModel):
         )
         self.limit_activity = Param(self.limit_activity_constraint_rpt)
 
-        self.limit_seasonal_capacity_factor_constraint_rst = Set()
+        self.limit_seasonal_capacity_factor_constraint_rst = Set(
+            within=self.regional_global_indices
+            * self.time_season
+            * self.tech_or_group
+            * self.operator
+        )
         self.limit_seasonal_capacity_factor = Param(
             self.limit_seasonal_capacity_factor_constraint_rst, validate=validate_0to1
         )
@@ -652,25 +687,6 @@ class TemoaModel(AbstractModel):
         )
         self.limit_annual_capacity_factor = Param(
             self.limit_annual_capacity_factor_constraint_rtvo, validate=validate_0to1
-        )
-
-        self.limit_growth_capacity = Param(
-            self.regional_global_indices, self.tech_or_group, self.operator
-        )
-        self.limit_degrowth_capacity = Param(
-            self.regional_global_indices, self.tech_or_group, self.operator
-        )
-        self.limit_growth_new_capacity = Param(
-            self.regional_global_indices, self.tech_or_group, self.operator
-        )
-        self.limit_degrowth_new_capacity = Param(
-            self.regional_global_indices, self.tech_or_group, self.operator
-        )
-        self.limit_growth_new_capacity_delta = Param(
-            self.regional_global_indices, self.tech_or_group, self.operator
-        )
-        self.limit_degrowth_new_capacity_delta = Param(
-            self.regional_global_indices, self.tech_or_group, self.operator
         )
 
         self.limit_emission_constraint_rpe = Set(
@@ -743,9 +759,13 @@ class TemoaModel(AbstractModel):
         self.seasonal_storage_constraints_rpsdtv = Set(
             dimen=6, initialize=storage.seasonal_storage_constraint_indices
         )
-        self.limit_storage_fraction_param_rsdt = (
-            Set()
-        )  # populated by hybrid_loader with (r, s, d, t, op) keys
+        self.limit_storage_fraction_param_rsdt = Set(
+            within=self.regional_global_indices
+            * (self.time_season | self.time_season_sequential)
+            * self.time_of_day
+            * self.tech_storage
+            * self.operator
+        )
         self.limit_storage_fraction = Param(
             self.limit_storage_fraction_param_rsdt, validate=validate_0to1
         )
@@ -1008,31 +1028,19 @@ class TemoaModel(AbstractModel):
             rule=storage.limit_storage_fraction_constraint,
         )
 
-        self.ramp_up_day_constraint_rpsdtv = Set(
-            dimen=6, initialize=operations.ramp_up_day_constraint_indices
+        self.ramp_up_constraint_rpsdtv = Set(
+            dimen=6, initialize=operations.ramp_up_constraint_indices
         )
-        self.ramp_up_day_constraint = Constraint(
-            self.ramp_up_day_constraint_rpsdtv, rule=operations.ramp_up_day_constraint
+        self.ramp_down_constraint_rpsdtv = Set(
+            dimen=6, initialize=operations.ramp_down_constraint_indices
         )
-        self.ramp_down_day_constraint_rpsdtv = Set(
-            dimen=6, initialize=operations.ramp_down_day_constraint_indices
-        )
-        self.ramp_down_day_constraint = Constraint(
-            self.ramp_down_day_constraint_rpsdtv, rule=operations.ramp_down_day_constraint
-        )
-
-        self.ramp_up_season_constraint_rpsstv = Set(
-            dimen=6, initialize=operations.ramp_up_season_constraint_indices
-        )
-        self.ramp_up_season_constraint = Constraint(
-            self.ramp_up_season_constraint_rpsstv, rule=operations.ramp_up_season_constraint
-        )
-        self.ramp_down_season_constraint_rpsstv = Set(
-            dimen=6, initialize=operations.ramp_down_season_constraint_indices
-        )
-        self.ramp_down_season_constraint = Constraint(
-            self.ramp_down_season_constraint_rpsstv, rule=operations.ramp_down_season_constraint
-        )
+        if 'unit_commitment' not in self.enabled_extensions:
+            self.ramp_down_constraint = Constraint(
+                self.ramp_down_constraint_rpsdtv, rule=operations.ramp_down_constraint
+            )
+            self.ramp_up_constraint = Constraint(
+                self.ramp_up_constraint_rpsdtv, rule=operations.ramp_up_constraint
+            )
 
         self.reserve_margin_rpsd = Set(dimen=4, initialize=reserves.reserve_margin_indices)
         self.validate_reserve_margin = BuildAction(rule=validate_reserve_margin)
@@ -1045,51 +1053,6 @@ class TemoaModel(AbstractModel):
         )
         self.progress_marker_7 = BuildAction(
             ['Starting LimitGrowth and Activity Constraints'], rule=progress_check
-        )
-
-        self.limit_growth_capacity_constraint_rpt = Set(
-            dimen=4, initialize=limits.limit_growth_capacity_indices
-        )
-        self.limit_growth_capacity_constraint = Constraint(
-            self.limit_growth_capacity_constraint_rpt,
-            rule=limits.limit_growth_capacity_constraint_rule,
-        )
-        self.limit_degrowth_capacity_constraint_rpt = Set(
-            dimen=4, initialize=limits.limit_degrowth_capacity_indices
-        )
-        self.limit_degrowth_capacity_constraint = Constraint(
-            self.limit_degrowth_capacity_constraint_rpt,
-            rule=limits.limit_degrowth_capacity_constraint_rule,
-        )
-
-        self.limit_growth_new_capacity_constraint_rpt = Set(
-            dimen=4, initialize=limits.limit_growth_new_capacity_indices
-        )
-        self.limit_growth_new_capacity_constraint = Constraint(
-            self.limit_growth_new_capacity_constraint_rpt,
-            rule=limits.limit_growth_new_capacity_constraint_rule,
-        )
-        self.limit_degrowth_new_capacity_constraint_rpt = Set(
-            dimen=4, initialize=limits.limit_degrowth_new_capacity_indices
-        )
-        self.limit_degrowth_new_capacity_constraint = Constraint(
-            self.limit_degrowth_new_capacity_constraint_rpt,
-            rule=limits.limit_degrowth_new_capacity_constraint_rule,
-        )
-
-        self.limit_growth_new_capacity_delta_constraint_rpt = Set(
-            dimen=4, initialize=limits.limit_growth_new_capacity_delta_indices
-        )
-        self.limit_growth_new_capacity_delta_constraint = Constraint(
-            self.limit_growth_new_capacity_delta_constraint_rpt,
-            rule=limits.limit_growth_new_capacity_delta_constraint_rule,
-        )
-        self.limit_degrowth_new_capacity_delta_constraint_rpt = Set(
-            dimen=4, initialize=limits.limit_degrowth_new_capacity_delta_indices
-        )
-        self.limit_degrowth_new_capacity_delta_constraint = Constraint(
-            self.limit_degrowth_new_capacity_delta_constraint_rpt,
-            rule=limits.limit_degrowth_new_capacity_delta_constraint_rule,
         )
 
         self.limit_activity_constraint = Constraint(
@@ -1216,6 +1179,8 @@ class TemoaModel(AbstractModel):
             self.emission_performance_standard_prpe,
             rule=emissions.emission_performance_standard_constraint,
         )
+
+        apply_model_extension_hooks(self, self.extension_specs)
 
         self.progress_marker_9 = BuildAction(['Finished Constraints'], rule=progress_check)
 

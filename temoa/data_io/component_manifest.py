@@ -16,11 +16,14 @@ To add a new standard component to the model, a developer typically only needs
 to add a new `LoadItem` to this manifest.
 """
 
+from collections.abc import Sequence
+
 from temoa.core.model import TemoaModel
 from temoa.data_io.loader_manifest import LoadItem
+from temoa.extensions.framework import append_extension_manifest_items, resolve_extension_specs
 
 
-def build_manifest(model: TemoaModel) -> list[LoadItem]:
+def build_manifest(model: TemoaModel, extension_ids: Sequence[str] | None = None) -> list[LoadItem]:
     """
     Builds the manifest of all data components to be loaded into the Pyomo model.
 
@@ -289,6 +292,14 @@ def build_manifest(model: TemoaModel) -> list[LoadItem]:
             is_table_required=False,
         ),
         LoadItem(
+            component=model.retired_existing_capacity,
+            table='output_retired_capacity',
+            columns=['region', 'period', 'tech', 'vintage', 'cap_early'],
+            custom_loader_name='_load_retired_existing_capacity',
+            is_period_filtered=False,  # Custom loader handles all logic
+            is_table_required=False,
+        ),
+        LoadItem(
             component=model.cost_invest,
             table='cost_invest',
             columns=['region', 'tech', 'vintage', 'cost'],
@@ -296,6 +307,7 @@ def build_manifest(model: TemoaModel) -> list[LoadItem]:
             validation_map=(0, 1, 2),
             is_period_filtered=False,
             is_table_required=False,
+            index_set=model.cost_invest_rtv,
         ),
         LoadItem(
             component=model.cost_fixed,
@@ -319,12 +331,14 @@ def build_manifest(model: TemoaModel) -> list[LoadItem]:
             validation_map=(0, 1),
             is_period_filtered=False,
             is_table_required=False,
+            index_set=model.cost_variable_multiplier_rtsd,
         ),
         LoadItem(
             component=model.cost_emission,
             table='cost_emission',
             columns=['region', 'period', 'emis_comm', 'cost'],
             is_table_required=False,
+            index_set=model.cost_emission_rpe,
         ),
         LoadItem(
             component=model.output_based_standard,
@@ -340,6 +354,7 @@ def build_manifest(model: TemoaModel) -> list[LoadItem]:
             ],
             custom_loader_name='_load_output_based_standard',
             is_table_required=False,
+            index_set=model.output_based_standard_rpeito,
         ),
         LoadItem(
             component=model.loan_rate,
@@ -404,6 +419,7 @@ def build_manifest(model: TemoaModel) -> list[LoadItem]:
             component=model.demand,
             table='demand',
             columns=['region', 'period', 'commodity', 'demand'],
+            index_set=model.demand_constraint_rpc,
         ),
         LoadItem(
             component=model.demand_specific_distribution,
@@ -443,8 +459,7 @@ def build_manifest(model: TemoaModel) -> list[LoadItem]:
             component=model.lifetime_tech,
             table='lifetime_tech',
             columns=['region', 'tech', 'lifetime'],
-            validator_name='viable_rt',
-            validation_map=(0, 1),
+            custom_loader_name='_load_lifetime_tech',
             is_period_filtered=False,
             is_table_required=False,
         ),
@@ -452,8 +467,7 @@ def build_manifest(model: TemoaModel) -> list[LoadItem]:
             component=model.lifetime_process,
             table='lifetime_process',
             columns=['region', 'tech', 'vintage', 'lifetime'],
-            validator_name='viable_rtv',
-            validation_map=(0, 1, 2),
+            custom_loader_name='_load_lifetime_process',
             is_period_filtered=False,
             is_table_required=False,
         ),
@@ -461,8 +475,7 @@ def build_manifest(model: TemoaModel) -> list[LoadItem]:
             component=model.lifetime_survival_curve,
             table='lifetime_survival_curve',
             columns=['region', 'period', 'tech', 'vintage', 'fraction'],
-            validator_name='viable_rtv',
-            validation_map=(0, 2, 3),
+            custom_loader_name='_load_lifetime_survival_curve',
             is_period_filtered=False,
             is_table_required=False,
         ),
@@ -517,6 +530,7 @@ def build_manifest(model: TemoaModel) -> list[LoadItem]:
             columns=['region', 'period', 'tech_group', 'requirement'],
             custom_loader_name='_load_rps_requirement',
             is_table_required=False,
+            index_set=model.renewable_portfolio_standard_constraint_rpg,
         ),
         LoadItem(
             component=model.capacity_credit,
@@ -566,6 +580,7 @@ def build_manifest(model: TemoaModel) -> list[LoadItem]:
             validation_map=(0, 3),
             is_period_filtered=False,
             is_table_required=False,
+            index_set=model.limit_storage_fraction_param_rsdt,
         ),
         LoadItem(
             component=model.emission_activity,
@@ -596,6 +611,7 @@ def build_manifest(model: TemoaModel) -> list[LoadItem]:
             table='emission_performance_standard',
             columns=['policy', 'region', 'period', 'emis_comm', 'intensity'],
             is_table_required=False,
+            index_set=model.emission_performance_standard_prpe,
         ),
         LoadItem(
             component=model.policy_technology,
@@ -618,6 +634,7 @@ def build_manifest(model: TemoaModel) -> list[LoadItem]:
             ],
             is_period_filtered=False,
             is_table_required=False,
+            index_set=model.policy_emission_link_prtoto,
         ),
         LoadItem(
             component=model.emission_embodied,
@@ -665,6 +682,7 @@ def build_manifest(model: TemoaModel) -> list[LoadItem]:
             validator_name='viable_rpt',
             validation_map=(0, 1, 2),
             is_table_required=False,
+            index_set=model.limit_capacity_constraint_rpt,
         ),
         LoadItem(
             component=model.limit_new_capacity,
@@ -674,6 +692,7 @@ def build_manifest(model: TemoaModel) -> list[LoadItem]:
             validation_map=(0, 1, 2),
             is_period_filtered=False,
             is_table_required=False,
+            index_set=model.limit_new_capacity_constraint_rtv,
         ),
         LoadItem(
             component=model.limit_capacity_share,
@@ -682,6 +701,7 @@ def build_manifest(model: TemoaModel) -> list[LoadItem]:
             validator_name='viable_rpt',
             validation_map=(0, 1, 2),
             is_table_required=False,
+            index_set=model.limit_capacity_share_constraint_rpgg,
         ),
         LoadItem(
             component=model.limit_new_capacity_share,
@@ -691,6 +711,7 @@ def build_manifest(model: TemoaModel) -> list[LoadItem]:
             validation_map=(0, 1, 3),
             is_period_filtered=False,
             is_table_required=False,
+            index_set=model.limit_new_capacity_share_constraint_rggv,
         ),
         LoadItem(
             component=model.limit_activity,
@@ -699,6 +720,7 @@ def build_manifest(model: TemoaModel) -> list[LoadItem]:
             validator_name='viable_rpt',
             validation_map=(0, 1, 2),
             is_table_required=False,
+            index_set=model.limit_activity_constraint_rpt,
         ),
         LoadItem(
             component=model.limit_activity_share,
@@ -707,6 +729,7 @@ def build_manifest(model: TemoaModel) -> list[LoadItem]:
             validator_name='viable_rpt',
             validation_map=(0, 1, 2),
             is_table_required=False,
+            index_set=model.limit_activity_share_constraint_rpgg,
         ),
         LoadItem(
             component=model.limit_resource,
@@ -716,6 +739,7 @@ def build_manifest(model: TemoaModel) -> list[LoadItem]:
             validation_map=(0, 1),
             is_period_filtered=False,
             is_table_required=False,
+            index_set=model.limit_resource_constraint_rt,
         ),
         LoadItem(
             component=model.limit_seasonal_capacity_factor,
@@ -725,6 +749,7 @@ def build_manifest(model: TemoaModel) -> list[LoadItem]:
             validation_map=(0, 2),
             is_period_filtered=False,
             is_table_required=False,
+            index_set=model.limit_seasonal_capacity_factor_constraint_rst,
         ),
         LoadItem(
             component=model.limit_seasonal_activity,
@@ -739,6 +764,7 @@ def build_manifest(model: TemoaModel) -> list[LoadItem]:
                 'daily_limit',
             ],
             is_table_required=False,
+            index_set=model.limit_seasonal_activity_constraint_rpstco,
         ),
         LoadItem(
             component=model.limit_annual_capacity_factor,
@@ -748,12 +774,14 @@ def build_manifest(model: TemoaModel) -> list[LoadItem]:
             validation_map=(0, 1, 2, 3),
             is_period_filtered=False,
             is_table_required=False,
+            index_set=model.limit_annual_capacity_factor_constraint_rtvo,
         ),
         LoadItem(
             component=model.limit_emission,
             table='limit_emission',
             columns=['region', 'period', 'emis_comm', 'operator', 'value'],
             is_table_required=False,
+            index_set=model.limit_emission_constraint_rpe,
         ),
         LoadItem(
             component=model.limit_tech_input_split,
@@ -802,4 +830,5 @@ def build_manifest(model: TemoaModel) -> list[LoadItem]:
             is_table_required=False,
         ),
     ]
-    return manifest
+    extension_specs = resolve_extension_specs(extension_ids)
+    return append_extension_manifest_items(model, manifest, extension_specs)
